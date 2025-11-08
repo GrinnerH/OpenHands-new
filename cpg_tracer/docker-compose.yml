@@ -1,0 +1,21 @@
+services:
+  joern_server_16240:
+    image: joern_analysis
+    ports:
+      - 16240:9685
+  joern_server_16241:
+    image: llmxcpg2
+    ports:
+      - 16241:9685
+  joern_server_16242:
+    image: llmxcpg2
+    ports:
+      - 16242:9685
+  joern_server_16243:
+    image: llmxcpg2
+    ports:
+      - 16243:9685
+  joern_server_16244:
+    image: llmxcpg2
+    ports:
+      - 16244:9685
