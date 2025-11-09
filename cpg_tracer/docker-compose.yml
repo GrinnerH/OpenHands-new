@@ -1,21 +1,56 @@
 services:
   joern_server_16240:
     image: joern_analysis
+    environment:
+      TERM: dumb
+      NO_COLOR: "1"
+      CLICOLOR: "0"
+      FORCE_COLOR: "0"
     ports:
       - 16240:9685
+    volumes:
+      - ../evaluation/benchmarks/sec_bench:/workspace/sec_bench
   joern_server_16241:
     image: llmxcpg2
+    environment:
+      TERM: dumb
+      NO_COLOR: "1"
+      CLICOLOR: "0"
+      FORCE_COLOR: "0"
     ports:
       - 16241:9685
+    volumes:
+      - ../evaluation/benchmarks/sec_bench:/workspace/sec_bench
   joern_server_16242:
     image: llmxcpg2
+    environment:
+      TERM: dumb
+      NO_COLOR: "1"
+      CLICOLOR: "0"
+      FORCE_COLOR: "0"
     ports:
       - 16242:9685
+    volumes:
+      - ../evaluation/benchmarks/sec_bench:/workspace/sec_bench
   joern_server_16243:
     image: llmxcpg2
+    environment:
+      TERM: dumb
+      NO_COLOR: "1"
+      CLICOLOR: "0"
+      FORCE_COLOR: "0"
     ports:
       - 16243:9685
+    volumes:
+      - ../evaluation/benchmarks/sec_bench:/workspace/sec_bench
   joern_server_16244:
     image: llmxcpg2
+    environment:
+      TERM: dumb
+      NO_COLOR: "1"
+      CLICOLOR: "0"
+      FORCE_COLOR: "0"
     ports:
       - 16244:9685
+    volumes:
+      - ../evaluation/benchmarks/sec_bench:/workspace/sec_bench

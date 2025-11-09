@@ -1,16 +1,13 @@
-from __future__ import annotations
-
 from subprocess import call
-from typing import Iterable, List, Set, Tuple
-
-from .c_parser import CodeBlock
+from typing import Tuple
+from .c_parser import analyze_c_code, CodeBlock
 
 # Formats C/C++ code using clang-format.
 def format_code(file_name: str):
     lc = ["clang-format", "-i", file_name]
     return call(lc)
 
-def find_block(code_line: int, blocks: List[CodeBlock]) -> Tuple[int, int]:
+def find_block(code_line: int, blocks: list[CodeBlock]) -> Tuple[int, int]:
     block_start = -1
     block_end = -1
 
@@ -24,8 +21,10 @@ def find_block(code_line: int, blocks: List[CodeBlock]) -> Tuple[int, int]:
 
 # Returns a list of numbers that represents the lines of code that catch the context of this path.
 # The parameter path represents the lines of code of each node in a Joern extracted path.
-def get_context(path: Iterable[int], blocks: List[CodeBlock]) -> Set[int]:
-    context_lines: Set[int] = set(path)
+def get_context(path: list[int], blocks: list[CodeBlock]) -> set[int]:
+    context_lines = set()
+    for i in path:
+        context_lines.add(i)
 
     for i in range(len(path)):
         line_number = path[i]
@@ -41,7 +40,7 @@ def get_context(path: Iterable[int], blocks: List[CodeBlock]) -> Set[int]:
 
 # Converts the context(line numbers) to corresponding lines of code and saves the code in the specified file.
 # The context is a list of one indexed 'line numbers'
-def save_context(context: Iterable[int], source_code: str, file_path: str) -> str:
+def save_context(context: list[int], source_code: str, file_path: str) -> str:
     lines = source_code.splitlines()
     enhanced_joern = ""
 

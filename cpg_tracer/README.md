@@ -1,36 +1,81 @@
-• 主要改动
-  - 目录结构：cpg_tracer/ 目录包含
-      - backtrace.py：入口脚本（python -m cpg_tracer.backtrace ...），从 config.toml 读取 LLM 配置，通过 litellm（或 fallback stub）与 Joern 迭代交互，逐步追溯 sink→source；
-      - joern_manager.py：封装与 Joern server 的通信、导入代码、执行 CPGQL 查询、解析 reachableByFlows 输出；
-      - prompts.py：定义 LLM 的系统提示，要求用 JSON 输出查询、意图、是否期待路径、是否完成；
-      - cpgqls_client.py：轻量 HTTP 客户端，POST 到 http://<host>/api/cpgqls/query，无需额外安装；
-      - litellm_stub.py：当环境里没有 litellm 包时的兜底实现，保持 completion() 接口以便离线运行；
-      - __init__.py 占位。
+## 运行LLM
+uvicorn llmxcpgq_server:app --host 0.0.0.0 --port 8000
 
 
-  - 新建 cpg_tracer/ 目录：包含 __init__.py、prompts.py（新的 LLM 约束说明）、joern_manager.py（精简的 Joern 控制器，支持 docker-
-    compose 重启、可解析 file/line 级的 reachableByFlows 输出）。
-  - 新增 cpg_tracer/backtrace.py：命令行脚本，读取 config.toml 的 LLM 配置，通过 litellm 与 Joern 迭代交互。脚本会：
-      - 载入仓库、锁定 sink（函数、文件、行号、参数）并发送上下文给 LLM。
-      - 逐轮请求 LLM 生成 JSON 格式的 CPGQL 查询，执行后将 stdout、路径预览反馈给 LLM，直到路径充分或迭代耗尽。
-      - 将收集到的 Source→Transform→Sink 路径写入 cpg_tracer/output/paths.json 与可读的 paths.md，便于后续 PoC 设计。
+## docker内部文件分布：
+- 项目路径： /workspace/sec_bench/njs.cve-2022-31307
+- 可执行文件：/opt/joern/joern-cli 路径下执行 ./joern
+- 创建CPG命令：
 
-  使用说明
+## cpg_tracer
 
-  1. 确保 Joern docker-compose 服务可用、config.toml 写好 LLM 信息。
-  2. 运行示例：
+`cpg_tracer` 最初借鉴 LLMxCPG 中的 `queries/` 思路（LLM 生成 Joern 查询 + REST API 执行），但两者的任务场景截然不同：
 
-     python -m cpg_tracer.backtrace \
-       --repo-root /mnt/d/Work_space/Memory_agent/VulnTree/debug/workspace/njs.cve-2022-32414 \
-       --sink-func njs_string_offset \
-       --sink-file src/njs_string.c \
-       --sink-line 2535 \
-       --sink-param 3
-  3. 输出文件位于 cpg_tracer/output/，其中 paths.md 以 <SOURCE>/<TRANSFORM>/<SINK> 摘要展示 LLM 认定完整的数据/控制流链。若 LLM
-     判定路径仍不完备，会在对话中继续补齐。
+- **LLMxCPG：漏洞挖掘 / 发现任务**
+  - 目标是自动识别潜在漏洞（聚焦“是否存在问题”），因此对整个仓库广泛探索，可能遍历多个路径或未知 sink。
+  - 代码来源通过 `all_source_code.zip` 预先放入容器，Joern workspace 在 build 阶段即构建完成。
 
-  后续建议
+- **cpg_tracer：漏洞复现 / PoC 生成**
+  - 我们从已知的 sink 出发（SEC-bench 给定 sanitizer 报告），需要构造完整的 Source→Transform→Sink 数据/控制流链，以便复现崩溃。重点是“沿着特定路径倒推”和“保存轨迹”。
+  - 必须根据实例的 `repo/base_commit` 动态 git clone，且为了 PoC 设计要记录每一步 LLM 查询、Joern stdout、上下文（`cpg_tracer/output/<instance>.json` 和 `.md`）。
 
-  - 结合真实实例测试脚本，观察 LLM 生成的查询是否稳定并确实覆盖控制流约束；如遇空路径，可在 prompts 中加入更多示例或手动提供初始
-    val sink = ... 模板。
-  - 待脚本产出的路径可靠后，再将其嵌入 agent 的提示构建流程或作为 MCP 工具暴露给 agent。
+- LLMxCPG 的数据集固定在 `all_source_code.zip` 中，容器 build 时就把所有源码放在 Joern workspace；我们则需要针对 **SEC-bench 中每个实例**（上百个不同的 Git 仓库与 commit）动态下载对应源码并切换版本。
+- LLMxCPG 主要做“漏洞存在性判断”，我们则要抓出完整的 Source→Transform→Sink + 控制流上下文供 PoC 复现使用；因此 JSON 日志中记录了每次 LLM 生成的查询、Joern 返回的 stdout、路径等“完整轨迹”。
+- LLMxCPG 只分析若干语言（JS、Python 等），而 SEC-bench 主要是 C/C++；我们增加了 `--language`、`--code-subdir` 选项来指定 c2cpg 入口，并挂载 `evaluation/benchmarks/sec_bench/<instance_id>` 到容器，以便 Joern REST 能访问每个实例的源码。
+
+综上，`cpg_tracer` 用于在当前场景下自动化执行以下流程：
+
+1. 克隆或复用指定的仓库版本（支持 `--repo-url` + `--base-commit`，也可以直接传 `--repo-root`）。
+2. 通过 docker-compose 启动 Joern server，并把 `evaluation/benchmarks/sec_bench` 目录挂载到容器 (`/workspace/sec_bench`)。
+3. 仅导入指定子目录（默认仓库根，可用 `--code-subdir src`）并强制使用给定语言（默认 `c`，可改 `--language`，`cpp` 等别名会自动回退为 `c`）。
+4. 调用 LLM（通过 litellm）生成逐步 Joern 查询，直到找到完整的 Source→Sink→Context 链路。
+5. 将所有查询/返回（完整轨迹）保存到 `cpg_tracer/output/<instance_id>.json` 与 `.md`。
+
+### 主要命令
+
+```bash
+python -m cpg_tracer.backtrace \
+  --repo-url https://github.com/nginx/njs \
+  --instance-id njs.cve-2022-31307 \
+  --base-commit f65981b0b8fcf02d69a40bc934803c25c9f607ab \
+  --code-subdir src \
+  --language c \
+  --sink-func njs_string_offset \
+  --sink-file src/njs_string.c \
+  --sink-line 2535 \
+  --sink-param 3 \
+  --joern-port 16240 \
+  --compose-file cpg_tracer/docker-compose.yml
+```
+
+### LLMxCPG 兼容目录
+
+为满足“与 LLMxCPG 完全一致”场景，`cpg_tracer/llmxcpg_ported/` 收录了原 `llmxcpg/queries` 中的核心脚本与 `Components/` 模块（`joern_manager.py`、`model.py`、`slice.py`、`c_parser.py`、`enhancer.py`）。内部引用已经改成 `cpg_tracer` 包下的模块，可以直接在本仓库运行：
+
+```bash
+python -m cpg_tracer.llmxcpg_ported.generate_and_run_queries --help
+```
+
+如需复现原流程（多线程切片、LMM 生成多条 Joern 查询、逐条执行并记录 stdout/stderr），可在该目录下按照 LLMxCPG 的 README 调用，上层镜像/compose 与现有 `cpg_tracer` 共用。
+
+### 注意事项
+
+- 运行前确保当前终端拥有 Docker 权限（`docker ps` 不报错）。
+- 第一次执行会自动 `git clone` + `checkout` 到 `evaluation/benchmarks/sec_bench/<instance_id>`，后续运行直接复用。
+- 如果 Joern 容器已存在，可在运行前手动 `docker compose -f cpg_tracer/docker-compose.yml up -d joern_server_<port>`。
+- 结果文件
+  - `cpg_tracer/output/<instance_id>.json`：包含路径、上下文、每轮 LLM/Joern 交互步骤、对话记录等。
+  - `cpg_tracer/output/<instance_id>.md`：可读的 Source/Transform/Sink 摘要。
+
+### 常见问题
+
+- **Permission denied while trying to connect to the Docker daemon socket**
+  - 当前终端没有 docker 组权限。重新登录或使用 sudo 拉起容器，再以同一权限级别运行脚本。
+- **ConsoleException: No CPG generator exists for language**
+  - `cpg_tracer` 会自动把常见别名（如 `cpp`、`cxx`、`javascript`、`typescript`）映射到 Joern 支持的语言，并在 REST 仍拒绝时回退为“无 language 参数”再次导入。所有 `importCode` 的 stdout 会直接打印在终端，便于复现/对比；若两次都失败，请在容器内使用 `joern`/`c2cpg.sh` 手动验证对应前端是否可用。
+- **LLM provider not provided**
+  - 请在 `config.toml` 的对应 LLM 配置中添加 `custom_llm_provider`，脚本已经自动传递该字段给 litellm。
+
+### 输出轨迹说明
+
+`<instance_id>.json` 中的 `steps`、`conversation` 字段记录了每一次 LLM query、Joern 执行状态、stdout/stderr，可用于追溯错误或调整 prompt。`paths`、`contexts` 则是成功的 Source→Sink 链路，给之后的 PoC 设计提供约束信息。

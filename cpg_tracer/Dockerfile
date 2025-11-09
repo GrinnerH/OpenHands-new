@@ -26,29 +26,16 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Create working directory
 WORKDIR /app
 
-# Create Python script using a better method to handle newlines
-RUN printf '%s\n' \
-    'from huggingface_hub import hf_hub_download' \
-    'repo_id = "QCRI/LLMxCPG-Code"' \
-    'filename = "all_source_code.zip"' \
-    'print(f"Attempting to download {filename} from {repo_id}...")' \
-    'file_path = hf_hub_download(repo_id=repo_id, filename=filename, repo_type="dataset", local_dir="/app")' \
-    'print(f"Successfully downloaded to {file_path}")' > download_dataset.py
-
 # Run the Python script to download the dataset
 # Use the python command from the virtual environment
-RUN python download_dataset.py
-
-# Install Joern
 RUN mkdir joern && cd joern \
     && curl -L "https://github.com/joernio/joern/releases/latest/download/joern-install.sh" -o joern-install.sh \
     && chmod u+x joern-install.sh \
     # Run non-interactively (remove --interactive flag)
     && bash ./joern-install.sh --without-plugins
 
-# Extract the downloaded zip file into Joern installation directory
-RUN mkdir -p /opt/joern/joern-cli && \
-    unzip -j /app/all_source_code.zip -d /opt/joern/joern-cli
+# Prepare Joern home
+RUN mkdir -p /opt/joern/joern-cli
 
 # Expose the port that Joern will use
 EXPOSE 9685
