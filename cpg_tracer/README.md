@@ -1,6 +1,26 @@
 ## 运行LLM
 uvicorn llmxcpgq_server:app --host 0.0.0.0 --port 8000
 
+### 主要命令
+
+```bash
+python -m cpg_tracer.backtrace \
+  --repo-url https://github.com/nginx/njs \
+  --instance-id njs.cve-2022-31307 \
+  --base-commit f65981b0b8fcf02d69a40bc934803c25c9f607ab \
+  --code-subdir src \
+  --language c \
+  --sink-func njs_string_offset \
+  --sink-file src/njs_string.c \
+  --sink-line 2535 \
+  --sink-param 3 \
+  --joern-port 16240 \
+  --compose-file cpg_tracer/docker-compose.yml \
+  --llm-profile local_cpg
+```
+
+### 构建joern_analysis
+docker build -t joern_analysis -f Dockerfile .
 
 ## docker内部文件分布：
 - 项目路径： /workspace/sec_bench/njs.cve-2022-31307
@@ -31,22 +51,6 @@ uvicorn llmxcpgq_server:app --host 0.0.0.0 --port 8000
 4. 调用 LLM（通过 litellm）生成逐步 Joern 查询，直到找到完整的 Source→Sink→Context 链路。
 5. 将所有查询/返回（完整轨迹）保存到 `cpg_tracer/output/<instance_id>.json` 与 `.md`。
 
-### 主要命令
-
-```bash
-python -m cpg_tracer.backtrace \
-  --repo-url https://github.com/nginx/njs \
-  --instance-id njs.cve-2022-31307 \
-  --base-commit f65981b0b8fcf02d69a40bc934803c25c9f607ab \
-  --code-subdir src \
-  --language c \
-  --sink-func njs_string_offset \
-  --sink-file src/njs_string.c \
-  --sink-line 2535 \
-  --sink-param 3 \
-  --joern-port 16240 \
-  --compose-file cpg_tracer/docker-compose.yml
-```
 
 ### LLMxCPG 兼容目录
 
