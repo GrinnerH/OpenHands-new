@@ -31,9 +31,9 @@ from evaluation.utils.shared import (
 from openhands.controller.state.state import State
 from openhands.core.config import (
     AgentConfig,
-    OpenHandsConfig,
+    AppConfig,
     get_llm_config_arg,
-    get_evaluation_parser,
+    get_parser,
 )
 from openhands.core.logger import openhands_logger as logger
 from openhands.core.main import create_runtime, run_controller
@@ -699,7 +699,7 @@ def get_instance_docker_image(instance_id: str, official_image: bool = False) ->
 def get_config(
     instance: pd.Series,
     metadata: EvalMetadata,
-) -> OpenHandsConfig:
+) -> AppConfig:
     # Get task type from metadata details
     task_type = (
         metadata.details.get('task_type', 'patch') if metadata.details else 'patch'
@@ -740,7 +740,7 @@ def get_config(
     )
     logger.info(f'Setting max_budget_per_task to {max_budget_per_task}')
 
-    config = OpenHandsConfig(
+    config = AppConfig(
         default_agent=metadata.agent_class,
         run_as_openhands=False,
         max_iterations=metadata.max_iterations,
@@ -1238,7 +1238,7 @@ def filter_dataset(dataset: pd.DataFrame, filter_column: str) -> pd.DataFrame:
 
 
 if __name__ == '__main__':
-    parser = get_evaluation_parser()
+    parser = get_parser()
     parser.add_argument(
         '--dataset',
         type=str,
