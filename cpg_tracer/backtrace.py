@@ -27,6 +27,8 @@ from .enhancer import get_context
 
 LOG = logging.getLogger("cpg_tracer")
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_CLONE_DIR = (PROJECT_ROOT / "evaluation/benchmarks/sec_bench").resolve()
 
 # --------------------------------------------------------------------------- IO
 def read_snippet(path: Path, line: int, radius: int = 25) -> str:
@@ -403,7 +405,7 @@ def prepare_repo(args: argparse.Namespace) -> Path:
     clone_root = (
         Path(args.clone_dir).resolve()
         if args.clone_dir
-        else Path("evaluation/benchmarks/sec_bench").resolve()
+        else DEFAULT_CLONE_DIR
     )
     clone_dir = clone_root / args.instance_id
     if clone_dir.exists():
@@ -411,7 +413,10 @@ def prepare_repo(args: argparse.Namespace) -> Path:
     else:
         clone_dir.parent.mkdir(parents=True, exist_ok=True)
         LOG.info("Cloning %s into %s", args.repo_url, clone_dir)
-        subprocess.run(["git", "clone", args.repo_url, str(clone_dir)], check=True)
+        # 添加GitHub代理
+        proxy_repo_url = "https://ghproxy.cn/"+args.repo_url
+        subprocess.run(["git", "clone", proxy_repo_url, str(clone_dir)], check=True)
+
     if args.base_commit:
         LOG.info("Checking out %s", args.base_commit)
         subprocess.run(
@@ -471,10 +476,52 @@ def run_session(args: argparse.Namespace) -> Dict[str, Any]:
 
     sink_file = repo_root / args.sink_file
     snippet = read_snippet(sink_file, args.sink_line)
-
     sink_context = textwrap.dedent(
         f"""\
-        <SINK_CONTEXT>
+        Instruction
+You are an experienced memory-safety analyst who writes Joern (Scala 3) queries. Based on the provided <SINK_CONTEXT> and
+sanitizer report, you must drive an LLM-guided backward trace from the known sink to its source, while strictly emitting JSON
+responses.
+
+Objective
+- Every subsequent response must provide an executable Joern Scala query that incrementally:
+   - Inspects the sink call site and its arguments.
+   - Tracks assignments/parameters back through callers using .assignment, .argument, .ddgIn, etc.
+   - Uses reachableBy / reachableByFlows only after a concrete source node was identified in the previous step.
+   - Captures control-flow guards (bounds checks, NULL checks) via .condition, .controlStructure, or .reachableByFlows.
+
+Constraints
+
+- Queries must be valid Scala 3 for the Joern REPL (define vals, chain with pipes, use map/take to keep output concise).
+- Do not print entire functions; restrict output to line numbers + code snippets.
+- reachableBy* sources must come from the exact nodes derived in the prior response; global patterns like cpg.identifier are
+   disallowed.
+- If Joern errors or returns repetitive data, explain the issue in intent and refine the query before moving on.
+- Record important control-flow predicates whenever they influence the data path.
+- Keep referencing the sink context but never copy/paste it back.
+
+Output Requirements
+Return a JSON object on every turn with the exact schema:
+
+{{
+   "query": "a Joern Scala statement",
+   "intent": "What you are examining + why",
+   "expect_paths": true or false,
+   "stop": true or false
+}}
+
+- Only set "expect_paths": true when the query actually emits reachableBy / reachableByFlows results.
+- Set "stop": true only after you have documented a full Source→Transform→Sink path and relevant control-flow constraints.
+- Any non-JSON text (including repeating the sink snippet) will be rejected.
+
+Example
+
+{{
+   "query": "cpg.method(\"func_1\").l",
+   "intent": "Confirm the existence and basic information of the func_1 method in CPG",
+   "expect_paths": false,
+   "stop": false
+}}
         已知 sink 描述：
         - 函数: {args.sink_func}
         - 文件: {args.sink_file}
@@ -482,20 +529,67 @@ def run_session(args: argparse.Namespace) -> Dict[str, Any]:
         - 参数索引: {args.sink_param}
         代码上下文:
         {snippet}
-        </SINK_CONTEXT>
 
-        <SANITIZER_REPORT>
+        SANITIZER_REPORT：
         {SANITIZER_REPORT.strip()}
-        </SANITIZER_REPORT>
 
-        行动要求：
-        1) 先对 Sanitizer 报告与上述代码片段进行推理，输出一次 `PLAN_ONLY`（query 填写该字面值即可）的 JSON，内容包括：
-           - 可能的崩溃机理/可疑变量
-           - 准备探索的调用链与 Joern 查询思路
-           - 为什么先从这些函数/变量切入
-        2) 只有在完成 PLAN_ONLY 总结后，才开始执行 Joern 查询。
-        3) 后续步骤按系统提示逐步逆向，直到构造出完整的数据/控制流路径。"""
+        <响应格式（严格 JSON）>
+```json
+{{
+  "query": "...",        // 合法 Joern 语句
+  "intent": "...",       // 当前关注的函数/变量/行号 + 下一步计划
+  "expect_paths": true/false,
+  "stop": true/false
+}}
+```
+- 仅当数据流与控制流都覆盖充分时，才允许 `"stop": true`；
+- 除 JSON 以外不要输出任何文字。
+</响应格式（严格 JSON）>
+
+重要：每一次仅仅输出一个json，你执行的是多轮任务，逐步的生成CPGQL查询语句来追溯数据流和控制流
+        """
     )
+
+#     sink_context = textwrap.dedent(
+#         f"""\
+#         <SINK_CONTEXT>
+#         已知 sink 描述：
+#         - 函数: {args.sink_func}
+#         - 文件: {args.sink_file}
+#         - 行号: {args.sink_line}
+#         - 参数索引: {args.sink_param}
+#         代码上下文:
+#         {snippet}
+#         </SINK_CONTEXT>
+
+#         <SANITIZER_REPORT>
+#         {SANITIZER_REPORT.strip()}
+#         </SANITIZER_REPORT>
+
+#         行动要求：
+#         1) 先对 Sanitizer 报告与上述代码片段进行推理，输出一次 `PLAN_ONLY`（query 填写该字面值即可）的 JSON，内容包括：
+#            - 可能的崩溃机理/可疑变量
+#            - 准备探索的调用链与 Joern 查询思路
+#            - 为什么先从这些函数/变量切入
+#         2) 只有在完成 PLAN_ONLY 总结后，才开始执行 Joern 查询。
+#         3) 后续步骤按系统提示逐步逆向，直到构造出完整的数据/控制流路径。
+
+#         <响应格式（严格 JSON）>
+# ```json
+# {{
+#   "query": "...",        // PLAN_ONLY 或合法 Joern 语句
+#   "intent": "...",       // 当前关注的函数/变量/行号 + 下一步计划
+#   "expect_paths": true/false,
+#   "stop": true/false
+# }}
+# ```
+# - PLAN_ONLY 之外的查询若缺少必要 import/别名，必须先补齐；
+# - 仅当数据流与控制流都覆盖充分时，才允许 `"stop": true`；
+# - 除 JSON 以外不要输出任何文字。
+# </响应格式（严格 JSON）>
+#         """
+#     )
+
 
     conversation_log: List[str] = []
     planner = LLMPlanner(cfg, sink_context, log_buffer=conversation_log)

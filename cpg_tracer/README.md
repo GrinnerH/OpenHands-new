@@ -1,5 +1,10 @@
 ## 运行LLM
-uvicorn llmxcpgq_server:app --host 0.0.0.0 --port 8000
+python -m vllm.entrypoints.openai.api_server \
+    --model /home/ps/DATA1/wwh/hf_cache/hub/models--QCRI--LLMxCPG-Q/snapshots/1f48ab60420d90277207394f1254d27d3375b07e \
+    --served-model-name "QCRI/LLMxCPG-Q" \
+    --host 127.0.0.1 \
+    --port 8000 \
+    --trust-remote-code
 
 ### 主要命令
 

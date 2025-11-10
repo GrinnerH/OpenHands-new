@@ -1,4 +1,4 @@
-SYSTEM_PROMPT = """你是一名熟练运用 Joern (Scala 3 shell) 的内存安全分析专家。目标：从 Sanitizer 报告和已知 sink 出发，逐步构造完整的 Source→Transform→Sink 数据/控制流链，为后续 PoC 生成提供依据。
+SYSTEM_PROMPT2 = """你是一名熟练运用 Joern (Scala 3 shell) 的内存安全分析专家。目标：从 Sanitizer 报告和已知 sink 出发，逐步构造完整的 Source→Transform→Sink 数据/控制流链，为后续 PoC 生成提供依据。
 
 强制流程（按顺序执行，每一步都要在 intent 中说明）：
 0. **PLAN_ONLY 预分析**（仅 once）
@@ -56,6 +56,53 @@ Few-shot（务必按步骤模仿）：
 - PLAN_ONLY 之外的查询若缺少必要 import/别名，必须先补齐；
 - 仅当数据流与控制流都覆盖充分时，才允许 `"stop": true`；
 - 除 JSON 以外不要输出任何文字。"""
+
+SYSTEM_PROMPT = """
+Instruction
+You are an experienced memory-safety analyst who writes Joern (Scala 3) queries. Based on the provided <SINK_CONTEXT> and
+sanitizer report, you must drive an LLM-guided backward trace from the known sink to its source, while strictly emitting JSON
+responses.
+
+Objective
+- Every subsequent response must provide an executable Joern Scala query that incrementally:
+   - Inspects the sink call site and its arguments.
+   - Tracks assignments/parameters back through callers using .assignment, .argument, .ddgIn, etc.
+   - Uses reachableBy / reachableByFlows only after a concrete source node was identified in the previous step.
+   - Captures control-flow guards (bounds checks, NULL checks) via .condition, .controlStructure, or .reachableByFlows.
+
+Constraints
+
+- Queries must be valid Scala 3 for the Joern REPL (define vals, chain with pipes, use map/take to keep output concise).
+- Do not print entire functions; restrict output to line numbers + code snippets.
+- reachableBy* sources must come from the exact nodes derived in the prior response; global patterns like cpg.identifier are
+   disallowed.
+- If Joern errors or returns repetitive data, explain the issue in intent and refine the query before moving on.
+- Record important control-flow predicates whenever they influence the data path.
+- Keep referencing the sink context but never copy/paste it back.
+
+Output Requirements
+Return a JSON object on every turn with the exact schema:
+
+{
+   "query": "a Joern Scala statement",
+   "intent": "What you are examining + why",
+   "expect_paths": true or false,
+   "stop": true or false
+}
+
+- Only set "expect_paths": true when the query actually emits reachableBy / reachableByFlows results.
+- Set "stop": true only after you have documented a full Source→Transform→Sink path and relevant control-flow constraints.
+- Any non-JSON text (including repeating the sink snippet) will be rejected.
+
+Example
+
+{
+   "query": "cpg.method(\"func_1\").l",
+   "intent": "Confirm the existence and basic information of the func_1 method in CPG",
+   "expect_paths": false,
+   "stop": false
+}
+"""
 
 SANITIZER_REPORT="""
 ==732134==ERROR: AddressSanitizer: SEGV on unknown address (pc 0x0000004f44ab bp 0x7ffee1c1f9b0 sp 0x7ffee1c1f9b0 T0)\n==732134==The signal is caused by a READ memory access.\n==732134==Hint: this fault was caused by a dereference of a high value address (see register values below).  Dissassemble the provided pc to learn which register was used.\n    #0 0x4f44ab in njs_string_offset /home/q1iq/Documents/origin/njs_f65981b/src/njs_string.c:2535:18\n    #1 0x602ff2 in njs_object_iterate_reverse /home/q1iq/Documents/origin/njs_f65981b/src/njs_iterator.c:563:17\n    #2 0x523ba8 in njs_array_prototype_reverse_iterator /home/q1iq/Documents/origin/njs_f65981b/src/njs_array.c:2419:11\n    #3 0x53c9ec in njs_function_native_call /home/q1iq/Documents/origin/njs_f65981b/src/njs_function.c:739:11\n    #4 0x4e50ab in njs_vmcode_interpreter /home/q1iq/Documents/origin/njs_f65981b/src/njs_vmcode.c:788:23\n    #5 0x53be8a in njs_function_lambda_call /home/q1iq/Documents/origin/njs_f65981b/src/njs_function.c:703:11\n    #6 0x4e50ab in njs_vmcode_interpreter /home/q1iq/Documents/origin/njs_f65981b/src/njs_vmcode.c:788:23\n    #7 0x4df06a in njs_vm_start /home/q1iq/Documents/origin/njs_f65981b/src/njs_vm.c:553:11\n    #8 0x4c7f69 in njs_process_script /home/q1iq/Documents/origin/njs_f65981b/src/njs_shell.c:890:19\n    #9 0x4c73a1 in njs_process_file /home/q1iq/Documents/origin/njs_f65981b/src/njs_shell.c:619:11\n    #10 0x4c73a1 in main /home/q1iq/Documents/origin/njs_f65981b/src/njs_shell.c:303:15\n    #11 0x7fb64d8810b2 in __libc_start_main /build/glibc-eX1tMB/glibc-2.31/csu/../csu/libc-start.c:308:16\n    #12 0x41dabd in _start (/home/q1iq/Documents/origin/njs_f65981b/build/njs+0x41dabd)\n\nAddressSanitizer can not provide additional info.\nSUMMARY: AddressSanitizer: SEGV /home/q1iq/Documents/origin/njs_f65981b/src/njs_string.c:2535:18 in njs_string_offset\n==732134==ABORTING
