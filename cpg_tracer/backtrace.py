@@ -536,15 +536,16 @@ def run_session(args: argparse.Namespace) -> Dict[str, Any]:
         flows: List[List[Dict[str, Any]]] = []
 
         plan_only = query.strip().upper() == "PLAN_ONLY"
+        needs_paths = ".reachableBy" in query or ".reachableByFlows" in query
         if plan_only:
             status = QueryStatus.SUCCESS
             stdout = "PLAN_ONLY acknowledged; no Joern query executed."
-        elif ".reachableBy" in query or expect_paths:
+        elif needs_paths:
             status, flows, stdout = manager.run_reachable_query(query)
         else:
             status, stdout = manager.execute(query)
 
-        if expect_paths and flows:
+        if flows:
             collected_paths.extend(flows)
 
         full_stdout = stdout.rstrip() or "<empty>"
@@ -573,6 +574,27 @@ def run_session(args: argparse.Namespace) -> Dict[str, Any]:
             break
 
     contexts = build_contexts(collected_paths, repo_root)
+    summary_text = build_path_summary(collected_paths, contexts)
+
+    for ctx in contexts:
+        lines = ", ".join(str(num) for num in ctx.get("lines", []))
+        snippet = ctx.get("snippet", "").strip()
+        ctx_msg = textwrap.dedent(
+            f"""\
+            PATH_CONTEXT #{ctx.get("path_index")}
+            file: {ctx.get("file")}
+            lines: {lines or "<unknown>"}
+            {snippet or "<empty snippet>"}
+            """
+        ).strip()
+        planner.messages.append({"role": "assistant", "content": ctx_msg})
+        _log_conversation_message("assistant", ctx_msg, conversation_log)
+
+    if summary_text:
+        summary_msg = "PATH_SUMMARY\n" + summary_text
+        planner.messages.append({"role": "assistant", "content": summary_msg})
+        _log_conversation_message("assistant", summary_msg, conversation_log)
+
     return {
         "paths": collected_paths,
         "contexts": contexts,
@@ -581,7 +603,7 @@ def run_session(args: argparse.Namespace) -> Dict[str, Any]:
         "steps": steps_log,
         "conversation": planner.messages,
         "conversation_log": conversation_log,
-        "summary": build_path_summary(collected_paths, contexts),
+        "summary": summary_text,
     }
 
 
