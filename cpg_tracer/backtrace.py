@@ -478,44 +478,56 @@ def run_session(args: argparse.Namespace) -> Dict[str, Any]:
     snippet = read_snippet(sink_file, args.sink_line)
 
     sink_context = textwrap.dedent(
-        f"""\
-        <SINK_CONTEXT>
-        已知 sink 描述：
-        - 函数: {args.sink_func}
-        - 文件: {args.sink_file}
-        - 行号: {args.sink_line}
-        - 参数索引: {args.sink_param}
-        代码上下文:
-        {snippet}
-        </SINK_CONTEXT>
+    f"""\
+    <SINK_CONTEXT>
+    The following is a crash context from a sanitizer report:
 
-        <SANITIZER_REPORT>
-        {SANITIZER_REPORT.strip()}
-        </SANITIZER_REPORT>
+    - Sink function: {args.sink_func}
+    - Source file: {args.sink_file}
+    - Line number: {args.sink_line}
+    - Argument index (0-based): {args.sink_param}
 
-        行动要求：
-        1) 先对 Sanitizer 报告与上述代码片段进行推理，输出一次 `PLAN_ONLY`（query 填写该字面值即可）的 JSON，内容包括：
-           - 可能的崩溃机理/可疑变量
-           - 准备探索的调用链与 Joern 查询思路
-           - 为什么先从这些函数/变量切入
-        2) 只有在完成 PLAN_ONLY 总结后，才开始执行 Joern 查询。
-        3) 后续步骤按系统提示逐步逆向，直到构造出完整的数据/控制流路径。
+    Relevant code context:
+    {snippet}
+    </SINK_CONTEXT>
 
-        <响应格式（严格 JSON）>
-```json
-{{
-  "query": "...",        // PLAN_ONLY 或合法 Joern 语句
-  "intent": "...",       // 当前关注的函数/变量/行号 + 下一步计划
-  "expect_paths": true/false,
-  "stop": true/false
-}}
-```
-- PLAN_ONLY 之外的查询若缺少必要 import/别名，必须先补齐；
-- 仅当数据流与控制流都覆盖充分时，才允许 `"stop": true`；
-- 除 JSON 以外不要输出任何文字。
-</响应格式（严格 JSON）>
-        """
-    )
+    <SANITIZER_REPORT>
+    {SANITIZER_REPORT.strip()}
+    </SANITIZER_REPORT>
+
+    <TASK INSTRUCTIONS>
+
+    You are now analyzing this vulnerability. Begin with a reasoning step before running any code queries.
+
+    1. Your first response must be a planning step:
+       - Set `"query": "PLAN_ONLY"` in the JSON.
+       - In `"intent"`, write a high-level hypothesis about the root cause of the crash and what Joern analysis strategy you plan to use.
+       - Mention which function(s), argument(s), or variable(s) you will explore first, and why.
+       - This step is for reasoning and planning only—no Joern queries are executed yet.
+
+    2. After PLAN_ONLY, proceed to execute one Joern query per step. Follow the system prompt instructions strictly.
+
+    3. Continue tracing data flow (and control flow where relevant) from the sink backward toward the source, until the vulnerable data origin is identified and its safety validated.
+
+    <OUTPUT FORMAT — STRICT JSON ONLY>
+    ```json
+    {{
+      "query": "...",           // "PLAN_ONLY" or a valid Joern query
+      "intent": "...",          // Explain the purpose of this step and why it's important
+      "expect_paths": true,     // true if this is a data/control flow query; false otherwise
+      "stop": false             // Set to true ONLY when the vulnerability has been fully explained
+    }}
+    ```
+
+    Additional rules:
+    - If a query requires imports or helpers, include them explicitly.
+    - Do NOT stop until both data flow and any relevant control flow conditions have been fully explored.
+    - Do NOT output any text or comments outside of the JSON block.
+
+    </OUTPUT FORMAT — STRICT JSON ONLY>
+    """
+)
+
 
 
     conversation_log: List[str] = []
