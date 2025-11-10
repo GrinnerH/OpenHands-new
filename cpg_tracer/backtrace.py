@@ -548,17 +548,12 @@ def run_session(args: argparse.Namespace) -> Dict[str, Any]:
         flows: List[List[Dict[str, Any]]] = []
 
         plan_only = query.strip().upper() == "PLAN_ONLY"
-        needs_paths = ".reachableBy" in query or ".reachableByFlows" in query
         if plan_only:
             status = QueryStatus.SUCCESS
             stdout = "PLAN_ONLY acknowledged; no Joern query executed."
-        elif needs_paths:
-            status, flows, stdout = manager.run_reachable_query(query)
         else:
             status, stdout = manager.execute(query)
-
-        if flows:
-            collected_paths.extend(flows)
+            flows = []
 
         full_stdout = stdout.rstrip() or "<empty>"
         summary_lines = [
@@ -582,11 +577,12 @@ def run_session(args: argparse.Namespace) -> Dict[str, Any]:
         )
         planner.feedback("\n".join(summary_lines))
 
-        if payload.get("stop") and collected_paths:
+        if payload.get("stop"):
             break
 
-    contexts = build_contexts(collected_paths, repo_root)
-    summary_text = build_path_summary(collected_paths, contexts)
+    contexts: List[Dict[str, Any]] = []
+    collected_paths = []
+    summary_text = ""
 
     for ctx in contexts:
         lines = ", ".join(str(num) for num in ctx.get("lines", []))
@@ -611,7 +607,7 @@ def run_session(args: argparse.Namespace) -> Dict[str, Any]:
         "paths": collected_paths,
         "contexts": contexts,
         "iterations": iterations,
-        "completed": bool(collected_paths),
+        "completed": iterations > 0,
         "steps": steps_log,
         "conversation": planner.messages,
         "conversation_log": conversation_log,
