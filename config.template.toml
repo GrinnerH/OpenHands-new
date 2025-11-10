@@ -113,6 +113,12 @@ api_key = ""
 # API base URL (For Headless / CLI only -  In Web this is overridden by Session Init)
 #base_url = ""
 
+# Automatically append /v1 to the base_url when missing (set false if your provider uses a different path)
+#ensure_v1_path = true
+
+# Set a custom relative path for OpenAI-compatible chat completions (defaults to /chat/completions)
+#chat_completions_path = "/chat/completions"
+
 # API version
 #api_version = ""
 
@@ -158,6 +164,13 @@ model = "gpt-4o"
 #retry_multiplier = 2.0
 
 # Drop any unmapped (unsupported) params without causing an exception
+#request_timeout = 120
+
+# Force skipping litellm and always use the OpenAI-compatible HTTP client
+#force_direct_http = false
+
+# When litellm fails, retry once via the OpenAI-compatible HTTP client
+#fallback_to_direct_http = true
 #drop_params = false
 
 # Modify params for litellm to do transformations like adding a default message, when a message is empty.

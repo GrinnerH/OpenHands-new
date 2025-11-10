@@ -11,10 +11,14 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 import tomllib
+import requests
+
+USING_LITELLM = True
 try:
     from litellm import completion
 except ImportError:  # pragma: no cover - fallback when litellm not installed
     from .litellm_stub import completion
+    USING_LITELLM = False
 
 from .joern_manager import JoernManager, QueryStatus
 from .prompts import SYSTEM_PROMPT, SANITIZER_REPORT
@@ -36,6 +40,38 @@ def read_snippet(path: Path, line: int, radius: int = 25) -> str:
     return "\n".join(snippet)
 
 
+DEFAULT_CHAT_COMPLETIONS_PATH = "/chat/completions"
+DEFAULT_CHAT_COMPLETION_TIMEOUT = 120
+
+
+def normalize_base_url(base_url: str, ensure_v1: Optional[bool]) -> str:
+    normalized = (base_url or "").strip()
+    if not normalized:
+        raise ValueError("base_url is required for LLM configuration")
+    normalized = normalized.rstrip("/")
+    if normalized.endswith(DEFAULT_CHAT_COMPLETIONS_PATH):
+        normalized = normalized[: -len(DEFAULT_CHAT_COMPLETIONS_PATH)]
+    ensure_v1 = True if ensure_v1 is None else bool(ensure_v1)
+    if ensure_v1 and not normalized.endswith("/v1"):
+        scheme_split = normalized.split("://", 1)
+        remainder = scheme_split[1] if len(scheme_split) == 2 else normalized
+        path_part = remainder.split("/", 1)[1] if "/" in remainder else ""
+        has_path = bool(path_part)
+        if not has_path:
+            normalized = f"{normalized}/v1"
+    return normalized
+
+
+def build_chat_completion_url(base_url: str, path: Optional[str]) -> str:
+    path_value = (path or DEFAULT_CHAT_COMPLETIONS_PATH).strip()
+    if not path_value.startswith("/"):
+        path_value = f"/{path_value}"
+    base = base_url.rstrip("/")
+    if base.endswith(path_value):
+        return base
+    return f"{base}{path_value}"
+
+
 def load_llm_config(config_path: Path, profile: Optional[str]) -> Dict[str, Any]:
     with config_path.open("rb") as f:
         data = tomllib.load(f)
@@ -46,10 +82,17 @@ def load_llm_config(config_path: Path, profile: Optional[str]) -> Dict[str, Any]
         cfg = next(iter(llm_section.values())) if llm_section else None
     if not cfg:
         raise ValueError("LLM configuration not found in config.toml")
+    cfg = dict(cfg)
     required = ["model", "api_key", "base_url"]
     missing = [k for k in required if k not in cfg]
     if missing:
         raise ValueError(f"Missing LLM keys: {missing}")
+    ensure_v1 = cfg.get("ensure_v1_path")
+    cfg["base_url"] = normalize_base_url(cfg["base_url"], ensure_v1)
+    cfg["chat_completions_url"] = build_chat_completion_url(
+        cfg["base_url"], cfg.get("chat_completions_path")
+    )
+    cfg.setdefault("request_timeout", DEFAULT_CHAT_COMPLETION_TIMEOUT)
     return cfg
 
 
@@ -227,6 +270,92 @@ def normalize_language(language: Optional[str]) -> Optional[str]:
 
 
 # ---------------------------------------------------------------------- session
+class OpenAICompatibleClient:
+    def __init__(self, cfg: Dict[str, Any]) -> None:
+        self.cfg = cfg
+        self.chat_url = cfg.get("chat_completions_url") or build_chat_completion_url(
+            cfg["base_url"], cfg.get("chat_completions_path")
+        )
+        self.timeout = cfg.get("request_timeout", DEFAULT_CHAT_COMPLETION_TIMEOUT)
+
+    def completion(self, messages: List[Dict[str, str]]) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {
+            "model": self.cfg["model"],
+            "messages": messages,
+        }
+        optional_fields = {
+            "temperature": self.cfg.get("temperature"),
+            "top_p": self.cfg.get("top_p"),
+            "top_k": self.cfg.get("top_k"),
+        }
+        for key, value in optional_fields.items():
+            if value is not None:
+                payload[key] = value
+
+        max_tokens = self.cfg.get("max_output_tokens") or self.cfg.get("max_tokens")
+        if max_tokens:
+            payload["max_tokens"] = max_tokens
+
+        headers = {
+            "Authorization": f"Bearer {self.cfg['api_key']}",
+            "Content-Type": "application/json",
+        }
+        try:
+            response = requests.post(
+                self.chat_url,
+                json=payload,
+                headers=headers,
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+        except requests.RequestException as exc:  # pragma: no cover - network call
+            raise RuntimeError(
+                f"Failed calling OpenAI-compatible endpoint {self.chat_url}: {exc}"
+            ) from exc
+        return response.json()
+
+
+class LLMClient:
+    PROVIDER_HINT = "LLM Provider NOT provided"
+
+    def __init__(self, cfg: Dict[str, Any]) -> None:
+        self.cfg = cfg
+        self.force_direct = bool(cfg.get("force_direct_http"))
+        self.direct_client = OpenAICompatibleClient(cfg)
+
+    def completion(self, messages: List[Dict[str, str]]) -> Dict[str, Any]:
+        if not USING_LITELLM or self.force_direct:
+            return self.direct_client.completion(messages)
+        try:
+            return completion(
+                model=self.cfg["model"],
+                messages=messages,
+                api_key=self.cfg["api_key"],
+                base_url=self.cfg["base_url"],
+                temperature=self.cfg.get("temperature", 0.0),
+                custom_llm_provider=self.cfg.get("custom_llm_provider"),
+            )
+        except Exception as exc:  # pragma: no cover - network call
+            if self._should_retry_direct(exc):
+                LOG.warning(
+                    "litellm failed (%s); retrying via direct HTTP %s",
+                    exc,
+                    self.direct_client.chat_url,
+                )
+                return self.direct_client.completion(messages)
+            raise
+
+    def _should_retry_direct(self, exc: Exception) -> bool:
+        if self.force_direct:
+            return True
+        if not USING_LITELLM:
+            return False
+        message = str(exc)
+        if self.cfg.get("fallback_to_direct_http"):
+            return True
+        return self.PROVIDER_HINT in message
+
+
 def _log_conversation_message(role: str, content: str, buffer: Optional[List[str]] = None) -> None:
     prefix = f"[LLM][{role}]"
     LOG.info("%s %s", prefix, content.rstrip())
@@ -237,6 +366,7 @@ def _log_conversation_message(role: str, content: str, buffer: Optional[List[str
 class LLMPlanner:
     def __init__(self, cfg: Dict[str, Any], sink_context: str, log_buffer: Optional[List[str]] = None) -> None:
         self.cfg = cfg
+        self.client = LLMClient(cfg)
         self.log_buffer = log_buffer
         self.messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
@@ -245,14 +375,7 @@ class LLMPlanner:
         _log_conversation_message("system", SYSTEM_PROMPT, self.log_buffer)
         _log_conversation_message("user", sink_context, self.log_buffer)
     def request(self) -> Dict[str, Any]:
-        response = completion(
-            model=self.cfg["model"],
-            messages=self.messages,
-            api_key=self.cfg["api_key"],
-            base_url=self.cfg["base_url"],
-            temperature=self.cfg.get("temperature", 0.0),
-            custom_llm_provider=self.cfg.get("custom_llm_provider"),
-        )
+        response = self.client.completion(self.messages)
         message = response["choices"][0]["message"]["content"]
         self.messages.append({"role": "assistant", "content": message})
         _log_conversation_message("assistant", message, self.log_buffer)
