@@ -4,11 +4,12 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import re
 import textwrap
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import tomllib
 import requests
@@ -98,18 +99,53 @@ def load_llm_config(config_path: Path, profile: Optional[str]) -> Dict[str, Any]
     return cfg
 
 
-def extract_json_block(content: str) -> Dict[str, Any]:
-    """Extract JSON payload from assistant message."""
+THINK_BLOCK_PATTERN = re.compile(r"^\s*<think>(.*?)</think>\s*", re.DOTALL)
+
+
+class AssistantResponseFormatError(ValueError):
+    def __init__(
+        self,
+        content: str,
+        assistant_visible: str,
+        think_content: Optional[str],
+        exc: json.JSONDecodeError,
+    ) -> None:
+        super().__init__(f"Assistant response is not valid JSON: {content}")
+        self.assistant_visible = assistant_visible
+        self.think_content = think_content
+        self.original = exc
+
+
+def _strip_code_fence(block: str) -> str:
+    trimmed = block.strip()
+    if not trimmed.startswith("```"):
+        return trimmed
+    without_ticks = trimmed.split("```", 1)[1]
+    without_ticks = without_ticks.lstrip()
+    if without_ticks.startswith("json"):
+        without_ticks = without_ticks[4:]
+    return without_ticks.rstrip("`").strip()
+
+
+def _separate_think_block(content: str) -> Tuple[str, Optional[str]]:
     block = content.strip()
-    if block.startswith("```"):
-        block = block.strip("`")
-        if block.startswith("json"):
-            block = block[4:]
-    block = block.strip()
+    think_content = None
+    match = THINK_BLOCK_PATTERN.match(block)
+    if match:
+        think_content = match.group(1).strip()
+        block = block[match.end():].strip()
+    return block, think_content
+
+
+def extract_json_block(content: str) -> Tuple[Dict[str, Any], Optional[str], str]:
+    """Extract JSON payload from assistant message."""
+    block, think_content = _separate_think_block(content)
+    assistant_visible = block
+    normalized = _strip_code_fence(block)
     try:
-        return json.loads(block)
+        return json.loads(normalized), think_content, assistant_visible
     except json.JSONDecodeError as exc:
-        raise ValueError(f"Assistant response is not valid JSON: {content}") from exc
+        raise AssistantResponseFormatError(content, assistant_visible, think_content, exc) from exc
 
 
 def summarize_stdout(stdout: str, limit: int = 400) -> str:
@@ -370,6 +406,7 @@ class LLMPlanner:
         self.cfg = cfg
         self.client = LLMClient(cfg)
         self.log_buffer = log_buffer
+        self.max_json_retries = int(cfg.get("max_invalid_json_retries", 3))
         self.messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": sink_context},
@@ -377,14 +414,36 @@ class LLMPlanner:
         _log_conversation_message("system", SYSTEM_PROMPT, self.log_buffer)
         _log_conversation_message("user", sink_context, self.log_buffer)
     def request(self) -> Dict[str, Any]:
-        response = self.client.completion(self.messages)
-        message = response["choices"][0]["message"]["content"]
-        self.messages.append({"role": "assistant", "content": message})
-        _log_conversation_message("assistant", message, self.log_buffer)
-        payload = extract_json_block(message)
-        if "query" not in payload:
-            raise ValueError(f"LLM payload missing 'query': {message}")
-        return payload
+        attempts = 0
+        while True:
+            response = self.client.completion(self.messages)
+            message = response["choices"][0]["message"]["content"]
+            try:
+                payload, think_content, assistant_visible = extract_json_block(message)
+            except AssistantResponseFormatError as exc:
+                assistant_visible = exc.assistant_visible
+                think_content = exc.think_content
+                self.messages.append({"role": "assistant", "content": assistant_visible})
+                _log_conversation_message("assistant", assistant_visible, self.log_buffer)
+                if think_content:
+                    think_msg = f"<think>{think_content}</think>"
+                    _log_conversation_message("assistant-think", think_msg, self.log_buffer)
+                attempts += 1
+                if attempts >= self.max_json_retries:
+                    raise
+                warning = "上一条回答不是有效 JSON。请严格按照给定模板，仅输出 JSON。"
+                self.messages.append({"role": "user", "content": warning})
+                _log_conversation_message("user", warning, self.log_buffer)
+                continue
+
+            self.messages.append({"role": "assistant", "content": assistant_visible})
+            _log_conversation_message("assistant", assistant_visible, self.log_buffer)
+            if think_content:
+                think_msg = f"<think>{think_content}</think>"
+                _log_conversation_message("assistant-think", think_msg, self.log_buffer)
+            if "query" not in payload:
+                raise ValueError(f"LLM payload missing 'query': {assistant_visible}")
+            return payload
 
     def feedback(self, text: str) -> None:
         self.messages.append({"role": "user", "content": text})
@@ -520,6 +579,7 @@ def run_session(args: argparse.Namespace) -> Dict[str, Any]:
     ```
 
     Additional rules:
+    - JSON must be strictly valid. Escape every double quote inside string values, avoid string concatenation syntax (e.g., `\"foo\" + \"bar\"`), and never include comments outside the provided template.
     - If a query requires imports or helpers, include them explicitly.
     - Do NOT stop until both data flow and any relevant control flow conditions have been fully explored.
     - Do NOT output any text or comments outside of the JSON block.
