@@ -558,24 +558,12 @@ def run_session(args: argparse.Namespace) -> Dict[str, Any]:
             raise
     LOG.info("Joern import stdout:\n%s", stdout.strip() or "<empty>")
 
-    sink_file = repo_root / args.sink_file
-    snippet = read_snippet(sink_file, args.sink_line)
     sink_context = textwrap.dedent(
 f"""\
-<SINK_CONTEXT>
-Sanitizer crash context (generic; do not assume extra fields):
-- Sink function (callee): {args.sink_func}
-- Callee implementation file: {args.sink_file}
-- Callee internal line (context only; NEVER anchor): {args.sink_line}
-- Crashing argument index (0-based as reported): {args.sink_param}
-
-Relevant code context (may include caller/callsite hints):
-{snippet}
-</SINK_CONTEXT>
-
-<SANITIZER_REPORT>
+< SANITIZER_REPORT >
+Sanitizer crash context:
 {SANITIZER_REPORT.strip()}
-</SANITIZER_REPORT>
+< / SANITIZER_REPORT >
 
 <TASK INSTRUCTIONS>
 Follow the **reordered 6-step pipeline** with hard Gates (S1→S6). One JSON per turn.
@@ -603,7 +591,7 @@ If guards are found, set `guards_pending=false` and list them in `path_condition
 
 First reply must be PLAN_ONLY (no Joern code):
 - Output exactly one JSON with `"query": "PLAN_ONLY"`.
-- In "intent": state `SINK_NAME={args.sink_func}`, `ARG_IDX_0BASED={args.sink_param}`, plan to compute `ARG_IDX_1BASED=ARG_IDX_0BASED+1` but LOCK only after S1 prints args; how you will anchor (caller+line if known; else caller+arg pattern; else disambiguate then verify by DDG/Taint); and the new step plan S1→S2→S3→S4→S5→S6.
+- In "intent": restate the sink metadata you inferred from the sanitizer report (function from stack frame #0, source file + line, crashing arg index if present; if missing, use `-1`). Plan to compute `ARG_IDX_1BASED=ARG_IDX_0BASED+1` but LOCK only after S1 prints args; describe how you will anchor (caller+line if known; else enumerate and verify) and outline the plan S1→S2→S3→S4→S5→S6 with ≤14 steps (Delta rule).
 - Keep a small step budget; if two consecutive steps add no new evidence, change strategy (run S4 or pivot S5).
 
 Stopping rule — You may set `"stop": true` once a concrete **Source → … → Sink(FOCUS)** data-flow path is printed. Include any guards found; if none, use `path_conditions=[]` and `guards_pending=true`.
@@ -759,10 +747,7 @@ def build_parser() -> argparse.ArgumentParser:
         default="c",
         help="Language hint for importCode (e.g., c, cpp, jssrc). Default: c",
     )
-    parser.add_argument("--sink-func", required=True)
-    parser.add_argument("--sink-file", required=True)
-    parser.add_argument("--sink-line", type=int, required=True)
-    parser.add_argument("--sink-param", type=int, required=True)
+    # Sink metadata now derived directly from sanitizer report inside prompts
     parser.add_argument("--compose-file", default="docker-compose.yml")
     parser.add_argument("--config", default="config.toml")
     parser.add_argument("--llm-profile", default=None)

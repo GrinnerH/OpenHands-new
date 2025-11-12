@@ -8,6 +8,17 @@ python -m vllm.entrypoints.openai.api_server \
 
 ### 主要命令
 
+python -m cpg_tracer.backtrace \
+  --repo-url https://github.com/nginx/njs \
+  --instance-id njs.cve-2022-31307 \
+  --base-commit f65981b0b8fcf02d69a40bc934803c25c9f607ab \
+  --code-subdir src \
+  --language c \
+  --joern-port 16240 \
+  --compose-file cpg_tracer/docker-compose.yml \
+  --llm-profile claude
+
+
 ```bash
 python -m cpg_tracer.backtrace \
   --repo-url https://github.com/nginx/njs \
