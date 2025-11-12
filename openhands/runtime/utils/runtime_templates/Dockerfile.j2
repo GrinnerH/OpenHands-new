@@ -258,13 +258,33 @@ RUN \
 WORKDIR /openhands/code
 
 USER openhands
+
+# --- 添加这部分 ---
+# 为镜像定义构建参数
+ARG PYPI_MIRROR_URL="https://pypi.tuna.tsinghua.edu.cn/simple"
+ARG PYPI_MIRROR_HOST="pypi.tuna.tsinghua.edu.cn"
+# --- 结束添加 ---
+
 RUN \
     /openhands/micromamba/bin/micromamba config set changeps1 False && \
+    # --- (这部分不变) 持久化 pip 配置 (作为双保险) ---
+    /openhands/micromamba/bin/micromamba run -n openhands pip config set global.index-url "${PYPI_MIRROR_URL}" && \
+    /openhands/micromamba/bin/micromamba run -n openhands pip config set global.trusted-host "${PYPI_MIRROR_HOST}" && \
+    \
+    # (这部分不变) 配置 poetry 自身
+    /openhands/micromamba/bin/micromamba run -n openhands poetry config repositories.pypi "${PYPI_MIRROR_URL}" && \
     /openhands/micromamba/bin/micromamba run -n openhands poetry config virtualenvs.path /openhands/poetry && \
     /openhands/micromamba/bin/micromamba run -n openhands poetry env use python3.12 && \
-    # Install project dependencies
-    /openhands/micromamba/bin/micromamba run -n openhands poetry install --only main,runtime --no-interaction --no-root && \
-    # Clean up user caches
+    \
+    # --- 关键修复：在这里注入所有环境变量 ---
+    /openhands/micromamba/bin/micromamba run -n openhands \
+        env POETRY_USE_LEGACY_INSTALLERS=true \
+            PIP_INDEX_URL="${PYPI_MIRROR_URL}" \
+            PIP_TRUSTED_HOST="${PYPI_MIRROR_HOST}" \
+        poetry install --only main,runtime --no-interaction --no-root && \
+    # --- 修复结束 ---
+    \
+    # (这部分不变) 清理缓存
     /openhands/micromamba/bin/micromamba run -n openhands poetry cache clear --all . -n && \
     /openhands/micromamba/bin/micromamba clean --all
 
@@ -370,7 +390,9 @@ RUN chmod a+rwx /openhands/code/openhands/__init__.py && \
 # Install extra dependencies if specified (as openhands user)
 {% if extra_deps %}
 USER openhands
-RUN {{ extra_deps }}
+# RUN {{ extra_deps }}
+# 必须使用 micromamba run 来确保在正确的环境中执行
+RUN /openhands/micromamba/bin/micromamba run -n openhands {{ extra_deps }}
 {% endif %}
 
 # Set up environment for openhands user
