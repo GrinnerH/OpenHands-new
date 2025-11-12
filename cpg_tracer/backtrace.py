@@ -31,6 +31,30 @@ LOG = logging.getLogger("cpg_tracer")
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CLONE_DIR = (PROJECT_ROOT / "evaluation/benchmarks/sec_bench").resolve()
+DATAFLOW_STORE_NAME = "data_flow_out.json"
+
+
+def append_dataflow_record(output_dir: Path, instance_id: Optional[str], dataflow: Dict[str, Any]) -> None:
+    """Persist DATAFLOW_JSON results for downstream tooling."""
+    record = {
+        "instance_id": instance_id or "output",
+        "dataflow": dataflow,
+    }
+    store_path = output_dir / DATAFLOW_STORE_NAME
+    payload: List[Dict[str, Any]] = []
+    if store_path.exists():
+        raw = store_path.read_text().strip()
+        if raw:
+            try:
+                decoded = json.loads(raw)
+                if isinstance(decoded, list):
+                    payload = decoded
+            except json.JSONDecodeError:
+                LOG.warning("dataflow store %s is invalid JSON; recreating", store_path)
+    payload = [entry for entry in payload if entry.get("instance_id") != record["instance_id"]]
+    payload.append(record)
+    store_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False))
+
 
 # --------------------------------------------------------------------------- IO
 def read_snippet(path: Path, line: int, radius: int = 25) -> str:
