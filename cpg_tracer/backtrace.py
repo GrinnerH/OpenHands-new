@@ -23,6 +23,7 @@ except ImportError:  # pragma: no cover - fallback when litellm not installed
 
 from .joern_manager import JoernManager, QueryStatus
 from .prompts import SYSTEM_PROMPT, SANITIZER_REPORT
+from .summary_prompt import SYSTEM_PROMPT as SUMMARY_SYSTEM_PROMPT
 from .c_parser import analyze_c_code
 from .enhancer import get_context
 
@@ -402,17 +403,26 @@ def _log_conversation_message(role: str, content: str, buffer: Optional[List[str
 
 
 class LLMPlanner:
-    def __init__(self, cfg: Dict[str, Any], sink_context: str, log_buffer: Optional[List[str]] = None) -> None:
+    def __init__(
+        self,
+        cfg: Dict[str, Any],
+        initial_user_content: str,
+        log_buffer: Optional[List[str]] = None,
+        system_prompt: Optional[str] = None,
+        expect_dataflow: bool = False,
+    ) -> None:
         self.cfg = cfg
         self.client = LLMClient(cfg)
         self.log_buffer = log_buffer
         self.max_json_retries = int(cfg.get("max_invalid_json_retries", 3))
+        self.system_prompt = system_prompt or SYSTEM_PROMPT
+        self.expect_dataflow = expect_dataflow
         self.messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": sink_context},
+            {"role": "system", "content": self.system_prompt},
+            {"role": "user", "content": initial_user_content},
         ]
-        _log_conversation_message("system", SYSTEM_PROMPT, self.log_buffer)
-        _log_conversation_message("user", sink_context, self.log_buffer)
+        _log_conversation_message("system", self.system_prompt, self.log_buffer)
+        _log_conversation_message("user", initial_user_content, self.log_buffer)
     def request(self) -> Dict[str, Any]:
         attempts = 0
         while True:
@@ -442,6 +452,8 @@ class LLMPlanner:
                 think_msg = f"<think>{think_content}</think>"
                 _log_conversation_message("assistant-think", think_msg, self.log_buffer)
             if "query" not in payload:
+                if self.expect_dataflow and "DATAFLOW_JSON" in payload:
+                    return payload
                 raise ValueError(f"LLM payload missing 'query': {assistant_visible}")
             return payload
 
@@ -505,14 +517,11 @@ def map_container_path(host_path: Path, args: argparse.Namespace) -> Path:
     return Path(args.container_mount_base).joinpath(rel)
 
 
-def run_session(args: argparse.Namespace) -> Dict[str, Any]:
+def run_session(args: argparse.Namespace, cfg: Dict[str, Any]) -> Dict[str, Any]:
     repo_root = prepare_repo(args)
     host_source = get_source_dir(repo_root, args.code_subdir)
     container_repo = map_container_path(host_source, args)
     compose_file = Path(args.compose_file).resolve()
-    config_path = Path(args.config).resolve()
-
-    cfg = load_llm_config(config_path, args.llm_profile)
     manager = JoernManager(args.joern_port, str(compose_file), str(repo_root))
     language_hint = normalize_language(args.language)
     LOG.info(
@@ -535,10 +544,9 @@ def run_session(args: argparse.Namespace) -> Dict[str, Any]:
 
     sink_context = textwrap.dedent(
 f"""\
-< SANITIZER_REPORT >
-Sanitizer crash context:
+<SANITIZER_REPORT>
 {SANITIZER_REPORT.strip()}
-< / SANITIZER_REPORT >
+</SANITIZER_REPORT>
 
 <TASK INSTRUCTIONS>
 Follow the **reordered 6-step pipeline** with hard Gates (S1→S6). One JSON per turn.
@@ -673,6 +681,33 @@ No extra prose outside JSON; escape quotes; if imports/helpers are needed, inclu
     }
 
 
+def generate_dataflow_summary(
+    cfg: Dict[str, Any],
+    summary_path: Path,
+    output_dir: Path,
+    instance_id: Optional[str],
+) -> Tuple[Dict[str, Any], List[str]]:
+    data = json.loads(summary_path.read_text())
+    sanitized = dict(data)
+    sanitized.pop("conversation", None)
+    sanitized.pop("conversation_log", None)
+    summary_input = "<ANALYSIS_JSON>\n" + json.dumps(sanitized, ensure_ascii=False, indent=2) + "\n</ANALYSIS_JSON>"
+    summary_log: List[str] = []
+    planner = LLMPlanner(
+        cfg,
+        summary_input,
+        log_buffer=summary_log,
+        system_prompt=SUMMARY_SYSTEM_PROMPT,
+        expect_dataflow=True,
+    )
+    payload = planner.request()
+    dataflow = payload.get("DATAFLOW_JSON")
+    if not isinstance(dataflow, dict):
+        raise ValueError("Summary stage did not return DATAFLOW_JSON")
+    append_dataflow_record(output_dir, instance_id, dataflow)
+    return dataflow, summary_log
+
+
 # --------------------------------------------------------------------------- CLI
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="CPG backward tracer (LLM-guided)")
@@ -719,17 +754,32 @@ def main() -> None:
     output_dir = Path(args.output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    result = run_session(args)
+    config_path = Path(args.config).resolve()
+    cfg = load_llm_config(config_path, args.llm_profile)
+
+    result = run_session(args, cfg)
     suffix = args.instance_id or "output"
     summary_path = output_dir / f"{suffix}.json"
     summary_path.write_text(json.dumps(result, indent=2, ensure_ascii=False))
+
+    dataflow_json, summary_log = generate_dataflow_summary(
+        cfg,
+        summary_path,
+        output_dir,
+        suffix,
+    )
+
     md_path = output_dir / f"{suffix}.md"
     conversation_lines = result.get("conversation_log", [])
     conversation_text = "\n".join(conversation_lines)
     md_body = result.get("summary", "")
     if conversation_lines:
         md_body += "\n\n---\n## LLM Conversation\n```\n" + conversation_text + "\n```\n"
+    if summary_log:
+        summary_text = "\n".join(summary_log)
+        md_body += "\n\n---\n## DATAFLOW Summary Conversation\n```\n" + summary_text + "\n```\n"
     md_path.write_text(md_body)
+    LOG.info("Appended DATAFLOW_JSON for %s", suffix)
     convo_path = output_dir / f"{suffix}.conversation.log"
     if conversation_lines:
         convo_path.write_text(conversation_text + "\n")
