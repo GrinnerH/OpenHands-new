@@ -725,9 +725,9 @@ Then run a **NARROW** `.reachableBy` / `.reachableByFlows` using sources derived
 If empty, slightly broaden the specific source (still narrow). If still empty → S5.
 
 S5 Pivot Gate — If S2 is empty OR S2/S3 show FOCUS is a parameter/return/struct-field OR S4 produced no path:
-  • parameter k → pivot to each `caller.argument(k)`;
-  • return value → enter callee and set FOCUS to the defining return expression;
-  • struct-field → pivot to the caller that populates it and continue S2–S4.
+  - parameter k → pivot to each `caller.argument(k)`;
+  - return value → enter callee and set FOCUS to the defining return expression;
+  - struct-field → pivot to the caller that populates it and continue S2–S4.
 Note new FOCUS and `pivot_reason` in "intent". Pivot at most **one frame** per attempt.
 
 S6 Guard Gate (minimal, non-blocking) — After a concrete data-flow path exists, collect `.controlledBy.isControlStructure.condition.code` on BOTH the call node and the FOCUS argument node (not on methods), and summarize `path_conditions` in "intent".

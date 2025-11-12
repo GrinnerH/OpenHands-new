@@ -123,7 +123,7 @@ import io.joern.dataflowengineoss.language._
 cpg.method.nameExact("<CALLER_FUNC>").call.nameExact("<SINK_NAME>")
 .filter(_.lineNumber.exists(* == <CALLSITE_LINE>))
 .argument(<ARG_IDX_1BASED>).reachableBy(
-// Source Selection Ladder — pick the nearest first; broaden slightly only if empty
+// Source Selection Ladder — MUST use the specific node (assignment/parameter/out-param) identified by S2/S3/S5.
 cpg.method.nameExact("<CUR_FUNC>").assignment.where(_.target.codeExact("<FOCUS_NAME>")).ast
 .or(cpg.method.nameExact("<CUR_FUNC>").ast.isIdentifier.nameExact("<FOCUS_NAME>"))
 .or(cpg.method.nameExact("<CUR_FUNC>").assignment.where(_.target.codeExact("<STRUCT_NAME>.<FIELD_NAME>")).ast) // struct-field write
@@ -197,6 +197,8 @@ Triggered when S2 is empty, or when S2/S3 show FOCUS comes from a parameter/retu
 
 * If FOCUS flows via **struct-field** (e.g., `iargs.from`):
   Pivot to the caller where that struct field is populated; then apply **Golden Bridge A** in S4 to connect directly to the sink-FOCUS.
+
+* If S2/S3 identify FOCUS is populated by a **producer call's out-param** (e.g., `func(..., &out)`): This out-param node is your **Source**. **Stop S5 pivoting and proceed immediately to S4** to validate the path using Golden Bridge B.
 
 **Pivot sentinel**: pivot **one frame only**; record a small `visitedFuncs` set in `"intent"`. If about to re-enter a visited function, prefer S4 slight broadening instead of looping.
 
