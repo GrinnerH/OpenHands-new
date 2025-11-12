@@ -535,57 +535,61 @@ def run_session(args: argparse.Namespace) -> Dict[str, Any]:
 
     sink_file = repo_root / args.sink_file
     snippet = read_snippet(sink_file, args.sink_line)
-
     sink_context = textwrap.dedent(
-    f"""\
-    <SINK_CONTEXT>
-    The following is a crash context from a sanitizer report:
+f"""\
+<SINK_CONTEXT>
+Sanitizer crash context (generic; do not assume extra fields):
+- Sink function (callee): {args.sink_func}
+- Callee implementation file: {args.sink_file}
+- Callee internal line (context only; NEVER anchor): {args.sink_line}
+- Crashing argument index (0-based as reported): {args.sink_param}
 
-    - Sink function: {args.sink_func}
-    - Source file: {args.sink_file}
-    - Line number: {args.sink_line}
-    - Argument index (0-based): {args.sink_param}
+Relevant code context (may include caller/callsite hints):
+{snippet}
+</SINK_CONTEXT>
 
-    Relevant code context:
-    {snippet}
-    </SINK_CONTEXT>
+<SANITIZER_REPORT>
+{SANITIZER_REPORT.strip()}
+</SANITIZER_REPORT>
 
-    <SANITIZER_REPORT>
-    {SANITIZER_REPORT.strip()}
-    </SANITIZER_REPORT>
+<TASK INSTRUCTIONS>
+Follow the fixed 6-step pipeline with hard Gates (S1→S6). One JSON per turn.
 
-    <TASK INSTRUCTIONS>
+S1 ArgList Gate — Anchor the REAL callsite (never by the callee’s internal line above). After anchoring, PRINT the full argument list and then lock FOCUS to the correct 1-based index (convert reported 0-based by +1; if output disagrees, trust the printed list).
 
-    You are now analyzing this vulnerability. Begin with a reasoning step before running any code queries.
+S2 DDG Gate — In the caller that contains the callsite, run `.ddgIn` on FOCUS (local slice only). If empty → go to S6 immediately.
 
-    1. Your first response must be a planning step:
-       - Set `"query": "PLAN_ONLY"` in the JSON.
-       - In `"intent"`, write a high-level hypothesis about the root cause of the crash and what Joern analysis strategy you plan to use.
-       - Mention which function(s), argument(s), or variable(s) you will explore first, and why.
-       - This step is for reasoning and planning only—no Joern queries are executed yet.
+S3 Assign Gate — List assignments to FOCUS in the current function (to prune sources).
 
-    2. After PLAN_ONLY, proceed to execute one Joern query per step. Follow the system prompt instructions strictly.
+S4 Guard Gate — Collect guards via `.controlledBy.isControlStructure.condition.code` on BOTH the call node and the FOCUS argument node (not on methods). Summarize `path_conditions` in "intent".
 
-    3. Continue tracing data flow (and control flow where relevant) from the sink backward toward the source, until the vulnerable data origin is identified and its safety validated.
+S5 Taint Gate (mandatory) — First time you use `.reachableBy*`, include imports IN THE SAME query:
+  `import io.shiftleft.semanticcpg.language._`
+  `import io.joern.dataflowengineoss.language._`
+Then run a NARROW `.reachableBy` / `.reachableByFlows` using sources derived from S2/S3 (no global wildcards). Any `.reachableBy*` step must set `"expect_paths": true`.
 
-    <OUTPUT FORMAT — STRICT JSON ONLY>
-    ```json
-    {{
-      "query": "...",           // "PLAN_ONLY" or a valid Joern query
-      "intent": "...",          // Explain the purpose of this step and why it's important
-      "expect_paths": true,     // true if this is a data/control flow query; false otherwise
-      "stop": false             // Set to true ONLY when the vulnerability has been fully explained
-    }}
-    ```
+S6 Pivot Gate — If S2 is empty OR S2 shows FOCUS is a parameter/return:
+  • parameter k → pivot to each `caller.argument(k)`;
+  • return value → enter callee and set FOCUS to the defining return expression.
+After pivot, repeat S2–S5. In "intent" note the new FOCUS and `pivot_reason`.
 
-    Additional rules:
-    - JSON must be strictly valid. Escape every double quote inside string values, avoid string concatenation syntax (e.g., `\"foo\" + \"bar\"`), and never include comments outside the provided template.
-    - If a query requires imports or helpers, include them explicitly.
-    - Do NOT stop until both data flow and any relevant control flow conditions have been fully explored.
-    - Do NOT output any text or comments outside of the JSON block.
+First reply must be PLAN_ONLY (no Joern code):
+- Output exactly one JSON with `"query": "PLAN_ONLY"`.
+- In "intent": state SINK_NAME={args.sink_func}, ARG_IDX_0BASED={args.sink_param}, plan to compute ARG_IDX_1BASED=ARG_IDX_0BASED+1 but LOCK only after S1 prints args; how you will anchor (caller+line if known; else caller+arg pattern; else disambiguate then verify by ddgIn/reachableBy); and the step plan S1→S6.
+- Keep a small step budget; if two consecutive steps add no new evidence, change strategy (run S5 or pivot S6).
 
-    </OUTPUT FORMAT — STRICT JSON ONLY>
-    """
+Stopping rule — Set `"stop": true` ONLY after showing a concrete **Source → … → Sink(FOCUS)** path AND summarizing `path_conditions`.
+
+<OUTPUT FORMAT — STRICT JSON ONLY>
+{{
+  "query": "...",           // "PLAN_ONLY" or a valid Scala query for Joern
+  "intent": "...",          // Start with FOCUS=<code> once locked; include new_evidence, path_conditions, pivot_reason (if any)
+  "expect_paths": false,    // true ONLY if using .reachableBy or .reachableByFlows
+  "stop": false             // true ONLY when full Source→…→Sink and path_conditions are established
+}}
+No extra prose outside JSON; escape quotes; if imports/helpers are needed, include them inside the same "query".
+</TASK INSTRUCTIONS>
+"""
 )
 
 
