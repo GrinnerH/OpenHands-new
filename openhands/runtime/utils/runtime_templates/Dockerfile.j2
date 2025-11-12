@@ -280,8 +280,12 @@ RUN \
 {{ setup_base_system() }}
 
 # Install micromamba
+# 修改
+# 添加国内镜像源
+# ARG MICROMAMBA_INSTALL_URL="https://micro.mamba.pm/install.sh"
+ARG MICROMAMBA_INSTALL_URL="https://mirror.ghproxy.com/https://raw.githubusercontent.com/conda-forge/miniforge/main/scripts/micromamba-install.sh"
 RUN mkdir -p /openhands/micromamba/bin && \
-    /bin/bash -c "PREFIX_LOCATION=/openhands/micromamba BIN_FOLDER=/openhands/micromamba/bin INIT_YES=no CONDA_FORGE_YES=yes $(curl -L https://micro.mamba.pm/install.sh)" && \
+    /bin/bash -c "PREFIX_LOCATION=/openhands/micromamba BIN_FOLDER=/openhands/micromamba/bin INIT_YES=no CONDA_FORGE_YES=yes $(curl -L ${MICROMAMBA_INSTALL_URL})" && \
     /openhands/micromamba/bin/micromamba config remove channels defaults && \
     /openhands/micromamba/bin/micromamba config list && \
     chown -R openhands:openhands /openhands/micromamba && \
