@@ -222,29 +222,6 @@ def build_contexts(
     return contexts
 
 
-def append_dataflow_record(output_dir: Path, instance_id: Optional[str], dataflow: Dict[str, Any]) -> None:
-    """Persist DATAFLOW_JSON entries to cpg_tracer/output/data_flow_out.json."""
-    output_dir.mkdir(parents=True, exist_ok=True)
-    record = {"instance_id": instance_id or "default", "dataflow": dataflow}
-    path = output_dir / "data_flow_out.json"
-    store: Dict[str, Any] = {"entries": []}
-    if path.exists():
-        try:
-            raw = path.read_text().strip()
-            if raw:
-                store = json.loads(raw)
-        except json.JSONDecodeError:
-            LOG.warning("Failed to parse %s; reinitializing entries list", path)
-            store = {"entries": []}
-    if not isinstance(store, dict):
-        store = {"entries": []}
-    entries = store.setdefault("entries", [])
-    if not isinstance(entries, list):
-        entries = store["entries"] = []
-    entries.append(record)
-    path.write_text(json.dumps(store, indent=2, ensure_ascii=False))
-
-
 def build_path_summary(
     paths: List[List[Dict[str, Any]]], contexts: List[Dict[str, Any]]
 ) -> str:
@@ -464,10 +441,8 @@ class LLMPlanner:
             if think_content:
                 think_msg = f"<think>{think_content}</think>"
                 _log_conversation_message("assistant-think", think_msg, self.log_buffer)
-            if "query" not in payload and "DATAFLOW_JSON" not in payload:
-                raise ValueError(
-                    f"LLM payload missing 'query'/'DATAFLOW_JSON': {assistant_visible}"
-                )
+            if "query" not in payload:
+                raise ValueError(f"LLM payload missing 'query': {assistant_visible}")
             return payload
 
     def feedback(self, text: str) -> None:
@@ -604,10 +579,6 @@ Stopping rule — You may set `"stop": true` once a concrete **Source → … �
   "stop": false             // true when data-flow path printed; guards may be empty with guards_pending=true
 }}
 
-Finalization — Regardless of success or max-iteration stop, you MUST finish by emitting exactly one top-level JSON:
-{{ "DATAFLOW_JSON": {{ ... }} }}
-Fill `status.result="complete"` when a concrete path exists; otherwise `status.result="partial"` with `status.reason ∈ {"max_iterations","no_path"}` and a `partial_evidence` block. Then set "stop": true.
-
 No extra prose outside JSON; escape quotes; if imports/helpers are needed, include them inside the same "query".
 </TASK INSTRUCTIONS>
 """
@@ -622,29 +593,11 @@ No extra prose outside JSON; escape quotes; if imports/helpers are needed, inclu
     collected_paths: List[List[Dict[str, Any]]] = []
     steps_log: List[Dict[str, Any]] = []
     iterations = 0
-    output_dir = Path(args.output_dir).resolve()
-    output_dir.mkdir(parents=True, exist_ok=True)
-    dataflow_json: Optional[Dict[str, Any]] = None
 
     while iterations < args.max_iters:
         iterations += 1
         LOG.info("Iteration %s", iterations)
         payload = planner.request()
-        if "DATAFLOW_JSON" in payload:
-            dataflow_json = payload["DATAFLOW_JSON"]
-            append_dataflow_record(output_dir, args.instance_id, dataflow_json)
-            steps_log.append(
-                {
-                    "iteration": iterations,
-                    "payload": payload,
-                    "status": "DATAFLOW",
-                    "expect_paths": False,
-                    "query": None,
-                    "joern_stdout": "",
-                    "joern_flows": [],
-                }
-            )
-            break
         query = payload["query"]
         expect_paths = bool(payload.get("expect_paths"))
 
@@ -717,7 +670,6 @@ No extra prose outside JSON; escape quotes; if imports/helpers are needed, inclu
         "conversation": planner.messages,
         "conversation_log": conversation_log,
         "summary": summary_text,
-        "dataflow_json": dataflow_json,
     }
 
 
