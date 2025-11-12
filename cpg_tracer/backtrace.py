@@ -68,6 +68,84 @@ def read_snippet(path: Path, line: int, radius: int = 25) -> str:
     return "\n".join(snippet)
 
 
+def _parse_sink_metadata(report: str) -> Dict[str, Optional[str]]:
+    """Return sink metadata (function, file, line, column) parsed from sanitizer output."""
+    metadata: Dict[str, Optional[str]] = {
+        "function": None,
+        "file": None,
+        "line": None,
+        "column": None,
+    }
+    for raw_line in report.splitlines():
+        line = raw_line.strip()
+        if not line.startswith("#0 "):
+            continue
+        _, _, after_in = line.partition(" in ")
+        if not after_in:
+            continue
+        func, _, remainder = after_in.partition(" ")
+        remainder = remainder.strip()
+        if not remainder:
+            continue
+        parts = remainder.rsplit(":", 2)
+        if len(parts) < 2:
+            continue
+        path_part = parts[0].strip()
+        line_part = parts[1].strip()
+        col_part = parts[2].strip() if len(parts) == 3 else None
+        metadata["function"] = func
+        metadata["file"] = path_part or None
+        metadata["line"] = line_part or None
+        metadata["column"] = col_part or None
+        break
+    return metadata
+
+
+def _resolve_source_path(raw_path: Optional[str], source_root: Path) -> Optional[Path]:
+    if not raw_path:
+        return None
+    candidate = Path(raw_path)
+    if candidate.exists():
+        return candidate
+    parts = candidate.parts
+    for idx in range(len(parts)):
+        suffix = Path(*parts[idx:])
+        test_path = source_root / suffix
+        if test_path.exists():
+            return test_path
+    if candidate.name:
+        matches = list(source_root.rglob(candidate.name))
+        if len(matches) == 1:
+            return matches[0]
+    return None
+
+
+def _build_sink_context_block(source_root: Path, report: str) -> str:
+    meta = _parse_sink_metadata(report)
+    resolved = _resolve_source_path(meta.get("file"), source_root)
+    snippet_text = ""
+    if resolved and meta.get("line") and meta["line"].isdigit():
+        try:
+            snippet_text = read_snippet(resolved, int(meta["line"]))
+        except OSError as exc:
+            LOG.warning("Failed to read sink snippet from %s: %s", resolved, exc)
+    block_lines = ["<SINK_CONTEXT>"]
+    block_lines.append(f"sink_function: {meta.get('function') or '<unknown>'}")
+    block_lines.append(f"sink_source_file: {meta.get('file') or '<unknown>'}")
+    block_lines.append(f"resolved_source_file: {str(resolved) if resolved else '<unresolved>'}")
+    block_lines.append(f"sink_line: {meta.get('line') or '<unknown>'}")
+    if meta.get("column"):
+        block_lines.append(f"sink_column: {meta['column']}")
+    if snippet_text:
+        block_lines.append("<CODE_SNIPPET>")
+        block_lines.append(snippet_text)
+        block_lines.append("</CODE_SNIPPET>")
+    else:
+        block_lines.append("snippet: <unavailable>")
+    block_lines.append("</SINK_CONTEXT>")
+    return "\n".join(block_lines)
+
+
 DEFAULT_CHAT_COMPLETIONS_PATH = "/chat/completions"
 DEFAULT_CHAT_COMPLETION_TIMEOUT = 120
 
@@ -566,8 +644,67 @@ def run_session(args: argparse.Namespace, cfg: Dict[str, Any]) -> Dict[str, Any]
             raise
     LOG.info("Joern import stdout:\n%s", stdout.strip() or "<empty>")
 
+#     sink_context = textwrap.dedent(
+# f"""\
+# # <SANITIZER_REPORT>
+# # {SANITIZER_REPORT.strip()}
+# # </SANITIZER_REPORT>
+
+# <SANITIZER_EXTRACT>  <!-- parse-only; no free-form analysis -->
+# - Sink function:
+# - Callee implementation file:
+# - Callee internal line (context only; NEVER anchor):
+# - Crashing argument index (0-based as reported):
+# </SANITIZER_EXTRACT>
+
+# <TASK INSTRUCTIONS>
+# Follow the **reordered 6-step pipeline** with hard Gates (S1→S6). One JSON per turn.
+
+# S1 ArgList Gate — Anchor the REAL callsite (never by the callee’s internal line above). After anchoring, PRINT the full argument list and then lock FOCUS to the correct 1-based index (convert reported 0-based by +1; if output disagrees, trust the printed list).
+
+# S2 DDG Gate — In the caller that contains the callsite, run `.ddgIn` on FOCUS (local slice only). If empty → go to S5 immediately.
+
+# S3 Assign Gate — List assignments to FOCUS in the current function; if struct-field propagation exists (e.g., `iargs.from`), also list those writes. Use results to prune sources.
+
+# S4 Taint Gate (mandatory) — First time you use `.reachableBy*`, include imports IN THE SAME query:
+#   `import io.shiftleft.semanticcpg.language._`
+#   `import io.joern.dataflowengineoss.language._`
+# Then run a **NARROW** `.reachableBy` / `.reachableByFlows` using sources derived from S2/S3 (no global wildcards). Any `.reachableBy*` step must set `"expect_paths": true`.
+
+# S5 Pivot Gate — If S2 is empty OR S2/S3 show FOCUS is a parameter/return/struct-field OR S4 produced no path:
+#   • parameter k → pivot to each `caller.argument(k)`;
+#   • return value → enter callee and set FOCUS to the defining return expression;
+#   • struct-field → pivot to the caller that populates it and continue S2–S4.
+# Note new FOCUS and `pivot_reason` in "intent".
+
+# S6 Guard Gate — After a concrete data-flow path exists, collect `.controlledBy.isControlStructure.condition.code` on BOTH the call node and the FOCUS argument node (not on methods), and summarize `path_conditions` in "intent". If none constrain FOCUS, write `"none"`.
+
+# First reply must be PLAN_ONLY (no Joern code):
+# - Output exactly one JSON with `"query": "PLAN_ONLY"`.
+# - In "intent": state `SINK_NAME=njs_string_offset`, `ARG_IDX_0BASED=3`, plan to compute `ARG_IDX_1BASED=ARG_IDX_0BASED+1` but LOCK only after S1 prints args; how you will anchor (caller+line if known; else caller+arg pattern; else disambiguate then verify by DDG/Taint); and the new step plan S1→S2→S3→S4→S5→S6.
+# - Keep a small step budget; if two consecutive steps add no new evidence, change strategy (run S4 or pivot S5).
+
+# Stopping rule — Set `"stop": true` ONLY after showing a concrete **Source → … → Sink(FOCUS)** path AND summarizing `path_conditions`.
+
+# <OUTPUT FORMAT — STRICT JSON ONLY>
+# {{
+#   "query": "...",           // "PLAN_ONLY" or a valid Scala query for Joern
+#   "intent": "...",          // Start with FOCUS=<code> once locked; include new_evidence, path_conditions, pivot_reason (if any)
+#   "expect_paths": false,    // true ONLY if using .reachableBy or .reachableByFlows
+#   "stop": false             // true ONLY when full Source→…→Sink and path_conditions are established
+# }}
+# No extra prose outside JSON; escape quotes; if imports/helpers are needed, include them inside the same "query".
+# </TASK INSTRUCTIONS>
+# """
+# )
+
+
+    sink_block = _build_sink_context_block(host_source, SANITIZER_REPORT)
+
     sink_context = textwrap.dedent(
 f"""\
+{sink_block}
+
 <SANITIZER_REPORT>
 {SANITIZER_REPORT.strip()}
 </SANITIZER_REPORT>
@@ -615,10 +752,6 @@ No extra prose outside JSON; escape quotes; if imports/helpers are needed, inclu
 </TASK INSTRUCTIONS>
 """
 )
-
-
-
-
 
     conversation_log: List[str] = []
     planner = LLMPlanner(cfg, sink_context, log_buffer=conversation_log)
