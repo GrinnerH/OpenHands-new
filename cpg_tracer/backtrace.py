@@ -553,44 +553,54 @@ Relevant code context (may include caller/callsite hints):
 </SANITIZER_REPORT>
 
 <TASK INSTRUCTIONS>
-Follow the fixed 6-step pipeline with hard Gates (S1→S6). One JSON per turn.
+Follow the **reordered 6-step pipeline** with hard Gates (S1→S6). One JSON per turn.
 
-S1 ArgList Gate — Anchor the REAL callsite (never by the callee’s internal line above). After anchoring, PRINT the full argument list and then lock FOCUS to the correct 1-based index (convert reported 0-based by +1; if output disagrees, trust the printed list).
+S1 ArgList Gate — Anchor the REAL callsite (never by the callee’s internal line above). After anchoring, PRINT the full argument list and then lock FOCUS to the correct 1-based index (convert reported 0-based by +1; if output disagrees, trust the printed list; record the correction in "intent").
 
-S2 DDG Gate — In the caller that contains the callsite, run `.ddgIn` on FOCUS (local slice only). If empty → go to S6 immediately.
+S2 DDG Gate — In the caller that contains the callsite, run `.ddgIn` on FOCUS (local slice only). If empty → go to S5 immediately.
 
-S3 Assign Gate — List assignments to FOCUS in the current function (to prune sources).
+S3 Assign Gate — List assignments to FOCUS in the current function; if struct-field propagation exists (e.g., `iargs.from`), also list those writes. Use results to prune sources.
 
-S4 Guard Gate — Collect guards via `.controlledBy.isControlStructure.condition.code` on BOTH the call node and the FOCUS argument node (not on methods). Summarize `path_conditions` in "intent".
-
-S5 Taint Gate (mandatory) — First time you use `.reachableBy*`, include imports IN THE SAME query:
+S4 Taint Gate (mandatory) — First time you use `.reachableBy*`, include imports IN THE SAME query:
   `import io.shiftleft.semanticcpg.language._`
   `import io.joern.dataflowengineoss.language._`
-Then run a NARROW `.reachableBy` / `.reachableByFlows` using sources derived from S2/S3 (no global wildcards). Any `.reachableBy*` step must set `"expect_paths": true`.
+Then run a **NARROW** `.reachableBy` / `.reachableByFlows` using sources derived from S2/S3 (no global wildcards). Any `.reachableBy*` step must set `"expect_paths": true`.
+If empty, slightly broaden the specific source (still narrow). If still empty → S5.
 
-S6 Pivot Gate — If S2 is empty OR S2 shows FOCUS is a parameter/return:
+S5 Pivot Gate — If S2 is empty OR S2/S3 show FOCUS is a parameter/return/struct-field OR S4 produced no path:
   • parameter k → pivot to each `caller.argument(k)`;
-  • return value → enter callee and set FOCUS to the defining return expression.
-After pivot, repeat S2–S5. In "intent" note the new FOCUS and `pivot_reason`.
+  • return value → enter callee and set FOCUS to the defining return expression;
+  • struct-field → pivot to the caller that populates it and continue S2–S4.
+Note new FOCUS and `pivot_reason` in "intent". Pivot at most **one frame** per attempt.
+
+S6 Guard Gate (minimal, non-blocking) — After a concrete data-flow path exists, collect `.controlledBy.isControlStructure.condition.code` on BOTH the call node and the FOCUS argument node (not on methods), and summarize `path_conditions` in "intent".
+If guards are found, set `guards_pending=false` and list them in `path_conditions`; if none constrain FOCUS, set `path_conditions=[]` and `guards_pending=true`. Lack of guards **must not** block completion.
 
 First reply must be PLAN_ONLY (no Joern code):
 - Output exactly one JSON with `"query": "PLAN_ONLY"`.
-- In "intent": state SINK_NAME={args.sink_func}, ARG_IDX_0BASED={args.sink_param}, plan to compute ARG_IDX_1BASED=ARG_IDX_0BASED+1 but LOCK only after S1 prints args; how you will anchor (caller+line if known; else caller+arg pattern; else disambiguate then verify by ddgIn/reachableBy); and the step plan S1→S6.
-- Keep a small step budget; if two consecutive steps add no new evidence, change strategy (run S5 or pivot S6).
+- In "intent": state `SINK_NAME={args.sink_func}`, `ARG_IDX_0BASED={args.sink_param}`, plan to compute `ARG_IDX_1BASED=ARG_IDX_0BASED+1` but LOCK only after S1 prints args; how you will anchor (caller+line if known; else caller+arg pattern; else disambiguate then verify by DDG/Taint); and the new step plan S1→S2→S3→S4→S5→S6.
+- Keep a small step budget; if two consecutive steps add no new evidence, change strategy (run S4 or pivot S5).
 
-Stopping rule — Set `"stop": true` ONLY after showing a concrete **Source → … → Sink(FOCUS)** path AND summarizing `path_conditions`.
+Stopping rule — You may set `"stop": true` once a concrete **Source → … → Sink(FOCUS)** data-flow path is printed. Include any guards found; if none, use `path_conditions=[]` and `guards_pending=true`.
 
 <OUTPUT FORMAT — STRICT JSON ONLY>
 {{
   "query": "...",           // "PLAN_ONLY" or a valid Scala query for Joern
-  "intent": "...",          // Start with FOCUS=<code> once locked; include new_evidence, path_conditions, pivot_reason (if any)
-  "expect_paths": false,    // true ONLY if using .reachableBy or .reachableByFlows
-  "stop": false             // true ONLY when full Source→…→Sink and path_conditions are established
+  "intent": "...",          // Start with FOCUS=<code> once locked; include new_evidence, path_conditions (may be []), guards_pending=true|false, pivot_reason (if any)
+  "expect_paths": false,    // true ONLY when using .reachableBy or .reachableByFlows; set false for all other steps
+  "stop": false             // true when data-flow path printed; guards may be empty with guards_pending=true
 }}
+
+Finalization — Regardless of success or max-iteration stop, you MUST finish by emitting exactly one top-level JSON:
+{ "DATAFLOW_JSON": { ... } }
+Fill `status.result="complete"` when a concrete path exists; otherwise `status.result="partial"` with `status.reason ∈ {"max_iterations","no_path"}` and a `partial_evidence` block. Then set "stop": true.
+
 No extra prose outside JSON; escape quotes; if imports/helpers are needed, include them inside the same "query".
 </TASK INSTRUCTIONS>
 """
 )
+
+
 
 
 

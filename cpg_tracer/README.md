@@ -21,7 +21,7 @@ python -m cpg_tracer.backtrace \
   --sink-param 3 \
   --joern-port 16240 \
   --compose-file cpg_tracer/docker-compose.yml \
-  --llm-profile local_cpg
+  --llm-profile claude
 ```
 
 ### 构建joern_analysis

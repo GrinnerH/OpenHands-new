@@ -13,11 +13,8 @@ frontend/node_modules
 
 # Hidden files and directories
 .*
+!.git
+!.github
 __pycache__
 
-# Unneded files and directories
-/dev_config/
-/docs/
-/evaluation/
-/tests/
-CITATION.cff
+# Unneeded files and directories
