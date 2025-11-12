@@ -282,10 +282,13 @@ RUN \
 # Install micromamba
 # 修改
 # 添加国内镜像源
-# ARG MICROMAMBA_INSTALL_URL="https://micro.mamba.pm/install.sh"
-ARG MICROMAMBA_INSTALL_URL="https://mirror.ghproxy.com/https://raw.githubusercontent.com/conda-forge/miniforge/main/scripts/micromamba-install.sh"
+ARG MICROMAMBA_INSTALL_URL="https://micro.mamba.pm/install.sh"
+# ARG MICROMAMBA_INSTALL_URL="https://ghfast.top/https://raw.githubusercontent.com/conda-forge/miniforge/main/scripts/micromamba-install.sh"
+COPY ./code/openhands/runtime/utils/runtime_templates/install.sh /tmp/install_micromamba.sh
+# 替换$(curl -L ${MICROMAMBA_INSTALL_URL})为tmp/install_micromamba.sh
 RUN mkdir -p /openhands/micromamba/bin && \
-    /bin/bash -c "PREFIX_LOCATION=/openhands/micromamba BIN_FOLDER=/openhands/micromamba/bin INIT_YES=no CONDA_FORGE_YES=yes $(curl -L ${MICROMAMBA_INSTALL_URL})" && \
+    chmod +x /tmp/install_micromamba.sh && \
+    /bin/bash -c "PREFIX_LOCATION=/openhands/micromamba BIN_FOLDER=/openhands/micromamba/bin INIT_YES=no CONDA_FORGE_YES=yes /tmp/install_micromamba.sh" && \
     /openhands/micromamba/bin/micromamba config remove channels defaults && \
     /openhands/micromamba/bin/micromamba config list && \
     chown -R openhands:openhands /openhands/micromamba && \
@@ -297,7 +300,7 @@ RUN mkdir -p /openhands/micromamba/bin && \
     mkdir -p /root/.local/share/micromamba && \
     # Set up environment variables for system-wide access
     echo 'export PATH="/openhands/micromamba/bin:$PATH"' >> /etc/environment
-
+# /修改
 # Create the openhands virtual environment and install poetry and python
 RUN /openhands/micromamba/bin/micromamba create -n openhands -y && \
     /openhands/micromamba/bin/micromamba install -n openhands -c conda-forge poetry python=3.12 -y
