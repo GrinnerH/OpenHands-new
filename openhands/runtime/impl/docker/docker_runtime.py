@@ -54,6 +54,16 @@ if os.name == 'nt' or platform.release().endswith('microsoft-standard-WSL2'):
     APP_PORT_RANGE_2 = (45000, 49151)
 
 
+def _is_inside_container() -> bool:
+    """Best-effort check whether current process is running inside a container."""
+    try:
+        with open('/proc/1/cgroup', 'rt') as handle:
+            data = handle.read()
+        return 'docker' in data or 'containerd' in data
+    except OSError:
+        return False
+
+
 def _is_retryablewait_until_alive_error(exception: Exception) -> bool:
     if isinstance(exception, tenacity.RetryError):
         cause = exception.last_attempt.exception()
@@ -418,14 +428,48 @@ class DockerRuntime(ActionExecutionClient):
 
         self.api_url = f'{self.config.sandbox.local_runtime_url}:{self._container_port}'
 
-        use_host_network = self.config.sandbox.use_host_network
-        network_mode: typing.Literal['host'] | None = (
-            'host' if use_host_network else None
-        )
+        # Decide which Docker network namespace to join.
+        parent_container_name = os.environ.get('OPENHANDS_PARENT_CONTAINER')
+        share_parent_network = False
+        network_mode: str | None = None
+
+        if parent_container_name:
+            try:
+                # Ensure parent container exists before referencing its namespace.
+                self.docker_client.containers.get(parent_container_name)
+                network_mode = f'container:{parent_container_name}'
+                share_parent_network = True
+                self.log(
+                    'info',
+                    f'Sharing network namespace with parent container {parent_container_name}',
+                )
+            except docker.errors.DockerException as exc:
+                self.log(
+                    'warn',
+                    f"OPENHANDS_PARENT_CONTAINER='{parent_container_name}' not accessible ({exc}); falling back to default networking.",
+                )
+
+        if not network_mode:
+            use_host_network = self.config.sandbox.use_host_network
+            if use_host_network:
+                network_mode = 'host'
+            elif _is_inside_container():
+                self.log(
+                    'info',
+                    'Detected containerized environment without parent container hint; using default bridge network.',
+                )
+        else:
+            # When sharing parent network we must not publish ports.
+            use_host_network = False
 
         # Initialize port mappings
         port_mapping: dict[str, list[dict[str, str]]] | None = None
-        if not use_host_network:
+        if share_parent_network:
+            self.log(
+                'info',
+                f'Runtime ports will be reachable via parent container network ({network_mode}); skipping port bindings.',
+            )
+        elif not use_host_network:
             port_mapping = {
                 f'{self._container_port}/tcp': [
                     {
