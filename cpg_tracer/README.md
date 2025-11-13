@@ -65,7 +65,7 @@ python -m cpg_tracer.backtrace \
   --llm-profile claude
 ```
 
-（当前实现会在 `importCode` 阶段固定使用 C 前端，`--language` 仅为兼容旧参数。）
+（当前实现会在 `importCode` 阶段固定使用 C++ 前端，即便你传入其他语言，内部仍会执行 `importCode.cpp(...)`；`--language` 参数仅保留兼容性。）
 
 如果实例缺少 `sanitizer_report`，请在对应的元数据条目里补齐该字段后再运行（该信息是定位真实 callsite 的唯一来源）。
 

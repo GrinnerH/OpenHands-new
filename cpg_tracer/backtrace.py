@@ -565,10 +565,11 @@ def build_path_summary(
 
 
 LANGUAGE_ALIASES = {
-    "cpp": "c",
-    "c++": "c",
-    "cxx": "c",
-    "cc": "c",
+    "c": "c",
+    "cpp": "cpp",
+    "c++": "cpp",
+    "cxx": "cpp",
+    "cc": "cpp",
     "js": "jssrc",
     "javascript": "jssrc",
     "ts": "jssrc",
@@ -809,7 +810,7 @@ def run_session(args: argparse.Namespace, cfg: Dict[str, Any], sanitizer_report:
     compose_file = Path(args.compose_file).resolve()
     manager = JoernManager(args.joern_port, str(compose_file), str(repo_root))
     conversation_log: List[str] = []
-    language_hint = normalize_language("c")
+    language_hint = normalize_language("cpp")
     LOG.info(
         "Joern importCode inputPath=%s language=%s",
         container_repo,

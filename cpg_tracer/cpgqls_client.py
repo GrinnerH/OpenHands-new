@@ -27,10 +27,24 @@ class CPGQLSClient:
         return response.json()
 
 
+SPECIAL_IMPORT_METHODS = {
+    "c": "c",
+    "cpp": "cpp",
+    "jssrc": "jssrc",
+}
+
+
 def import_code_query(path: str, project_name: str, language: Optional[str] = None) -> str:
     escaped_path = path.replace("\\", "\\\\")
     escaped_project = project_name.replace("\\", "\\\\")
     if language:
+        method = SPECIAL_IMPORT_METHODS.get(language.lower())
+        if method:
+            return (
+                f'importCode.{method}('
+                f'inputPath="{escaped_path}", '
+                f'projectName="{escaped_project}")'
+            )
         return (
             f'importCode(inputPath="{escaped_path}", '
             f'projectName="{escaped_project}", language="{language}")'

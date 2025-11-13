@@ -3,3 +3,5 @@ njs.cve-2022-29369
 njs.cve-2022-29779
 njs.cve-2022-32414
 njs.cve-2022-38890
+imagemagick.cve-2021-3962
+mruby.cve-2022-1201
