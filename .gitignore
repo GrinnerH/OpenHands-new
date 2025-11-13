@@ -186,7 +186,7 @@ cython_debug/
 repomix-output.txt
 
 # evaluation
-evaluation/evaluation_outputs
+!evaluation/evaluation_outputs
 evaluation/outputs
 evaluation/swe_bench/eval_workspace*
 evaluation/SWE-bench/data
@@ -199,7 +199,7 @@ evaluation/scienceagentbench/benchmark
 evaluation/commit0_bench/repos
 
 # openhands resolver
-output/
+# output/
 
 # frontend
 
