@@ -680,6 +680,13 @@ def _log_conversation_message(role: str, content: str, buffer: Optional[List[str
         buffer.append(f"{prefix} {content.rstrip()}")
 
 
+def _log_run_event(tag: str, content: str, buffer: Optional[List[str]] = None) -> None:
+    prefix = f"[RUN][{tag}]"
+    LOG.info("%s %s", prefix, content.rstrip())
+    if buffer is not None:
+        buffer.append(f"{prefix} {content.rstrip()}")
+
+
 class LLMPlanner:
     def __init__(
         self,
@@ -801,7 +808,8 @@ def run_session(args: argparse.Namespace, cfg: Dict[str, Any], sanitizer_report:
     container_repo = map_container_path(host_source, args)
     compose_file = Path(args.compose_file).resolve()
     manager = JoernManager(args.joern_port, str(compose_file), str(repo_root))
-    language_hint = normalize_language(args.language)
+    conversation_log: List[str] = []
+    language_hint = normalize_language("c")
     LOG.info(
         "Joern importCode inputPath=%s language=%s",
         container_repo,
@@ -818,7 +826,13 @@ def run_session(args: argparse.Namespace, cfg: Dict[str, Any], sanitizer_report:
             status, stdout = manager.load_project(str(container_repo))
         else:
             raise
-    LOG.info("Joern import stdout:\n%s", stdout.strip() or "<empty>")
+    import_stdout = stdout.strip() or "<empty>"
+    LOG.info("Joern import stdout:\n%s", import_stdout)
+    _log_run_event(
+        "joern-import",
+        f"status={status.value}\n{import_stdout}",
+        conversation_log,
+    )
 
     sink_block = _build_sink_context_block(host_source, sanitizer_report)
 
@@ -873,8 +887,6 @@ No extra prose outside JSON; escape quotes; if imports/helpers are needed, inclu
 </TASK INSTRUCTIONS>
 """
 )
-
-    conversation_log: List[str] = []
     planner = LLMPlanner(cfg, sink_context, log_buffer=conversation_log)
     collected_paths: List[List[Dict[str, Any]]] = []
     steps_log: List[Dict[str, Any]] = []

@@ -2,12 +2,16 @@
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 import sys
 from pathlib import Path
 from typing import Iterable, List, Optional, Sequence, Set
 
+from .backtrace import DATAFLOW_STORE_NAME
+
 DEFAULT_DATASET_FILE = Path("evaluation/benchmarks/sec_bench/instance_ids.txt")
+DEFAULT_OUTPUT_DIR = Path("cpg_tracer/output")
 
 
 def read_instance_ids(path: Path) -> List[str]:
@@ -83,6 +87,55 @@ def build_instance_list(args: argparse.Namespace) -> List[str]:
         )
 
     return deduplicate_preserve_order(collected)
+
+
+def determine_output_dir(backtrace_args: Sequence[str]) -> Path:
+    output_dir = DEFAULT_OUTPUT_DIR
+    for idx, arg in enumerate(backtrace_args):
+        if arg == "--output-dir":
+            if idx + 1 < len(backtrace_args):
+                output_dir = Path(backtrace_args[idx + 1])
+            break
+        if arg.startswith("--output-dir="):
+            output_dir = Path(arg.split("=", 1)[1])
+            break
+    return output_dir.expanduser().resolve()
+
+
+def load_completed_instances(store_path: Path) -> Set[str]:
+    if not store_path.exists():
+        return set()
+    try:
+        raw = store_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return set()
+    if not raw:
+        return set()
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return set()
+    completed: Set[str] = set()
+    if isinstance(data, list):
+        for entry in data:
+            if isinstance(entry, dict):
+                instance_id = entry.get("instance_id")
+                if isinstance(instance_id, str):
+                    completed.add(instance_id)
+    return completed
+
+
+def report_progress(processed: int, total: int, successes: int, failures: int, skipped: int) -> None:
+    if total <= 0:
+        return
+    bar_width = 30
+    filled = int(bar_width * processed / total)
+    filled = min(max(filled, 0), bar_width)
+    bar = "#" * filled + "." * (bar_width - filled)
+    print(
+        f"[run_instances] Progress [{bar}] {processed}/{total} "
+        f"(success={successes}, failed={failures}, skipped={skipped})"
+    )
 
 
 def run_instance(
@@ -178,10 +231,23 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("[run_instances] No instances to run.", file=sys.stderr)
         return 1
 
+    output_dir = determine_output_dir(args.backtrace_args)
+    store_path = output_dir / DATAFLOW_STORE_NAME
+    completed_instances = load_completed_instances(store_path)
+
     successes = 0
+    skipped = 0
     failures: List[str] = []
 
-    for instance_id in instances:
+    total = len(instances)
+    for idx, instance_id in enumerate(instances, start=1):
+        if instance_id in completed_instances:
+            skipped += 1
+            print(
+                f"[run_instances] Skipping '{instance_id}' — DATAFLOW entry already exists in {store_path}"
+            )
+            report_progress(idx, total, successes, len(failures), skipped)
+            continue
         code = run_instance(
             instance_id=instance_id,
             python_exec=args.python_exec,
@@ -191,12 +257,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         if code == 0:
             successes += 1
+            completed_instances.add(instance_id)
         else:
             failures.append(instance_id)
+        report_progress(idx, total, successes, len(failures), skipped)
 
     print(
         f"[run_instances] Completed {successes}/{len(instances)} instances "
-        f"(failures: {len(failures)})"
+        f"(failures: {len(failures)}, skipped: {skipped})"
     )
     if failures:
         print("[run_instances] Failed instances: " + ", ".join(failures))

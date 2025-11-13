@@ -41,6 +41,8 @@ python -m cpg_tracer.run_instances \
   backtrace 会优先从该文件读出 repo_url、base_commit、code_subdir、language；否则它会自动加载 HuggingFace 数据集（默认 SEC-bench/
   SEC-bench, split=eval）并在每次运行中根据 instance_id 填充这些参数。元数据必须包含 `sanitizer_report` 字段（或兼容字段 `asan_report`），
   用于驱动每个实例的 SINK_CONTEXT。
+  批量脚本会在每次运行前检查 `<output_dir>/data_flow_out.json` 中是否已有对应的 `instance_id`。如果已经存在，就会跳过该实例并在终端
+  进度条中标记为 skipped。
 
 ## 运行LLM
 python -m vllm.entrypoints.openai.api_server \
@@ -62,6 +64,8 @@ python -m cpg_tracer.backtrace \
   --compose-file cpg_tracer/docker-compose.yml \
   --llm-profile claude
 ```
+
+（当前实现会在 `importCode` 阶段固定使用 C 前端，`--language` 仅为兼容旧参数。）
 
 如果实例缺少 `sanitizer_report`，请在对应的元数据条目里补齐该字段后再运行（该信息是定位真实 callsite 的唯一来源）。
 
