@@ -11,6 +11,11 @@ import subprocess
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+try:
+    from datasets import load_dataset as hf_load_dataset
+except ImportError:  # pragma: no cover - optional dependency
+    hf_load_dataset = None
+
 import tomllib
 import requests
 
@@ -32,6 +37,11 @@ LOG = logging.getLogger("cpg_tracer")
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CLONE_DIR = (PROJECT_ROOT / "evaluation/benchmarks/sec_bench").resolve()
 DATAFLOW_STORE_NAME = "data_flow_out.json"
+DEFAULT_HF_DATASET = "SEC-bench/SEC-bench"
+DEFAULT_HF_SPLIT = "eval"
+
+INSTANCE_METADATA_CACHE: Dict[str, Dict[str, Any]] = {}
+METADATA_SOURCE_LABEL: Optional[str] = None
 
 
 def append_dataflow_record(output_dir: Path, instance_id: Optional[str], dataflow: Dict[str, Any]) -> None:
@@ -54,6 +64,141 @@ def append_dataflow_record(output_dir: Path, instance_id: Optional[str], dataflo
     payload = [entry for entry in payload if entry.get("instance_id") != record["instance_id"]]
     payload.append(record)
     store_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False))
+
+
+# ------------------------------------------------------------------ metadata IO
+def _load_metadata_from_file(path: Path) -> Dict[str, Dict[str, Any]]:
+    text = path.read_text(encoding="utf-8").strip()
+    records: List[Dict[str, Any]] = []
+    if not text:
+        return {}
+    if path.suffix.lower() == ".jsonl":
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            records.append(json.loads(line))
+    else:
+        data = json.loads(text)
+        if isinstance(data, list):
+            records = data
+        elif isinstance(data, dict):
+            if "instances" in data and isinstance(data["instances"], list):
+                records = data["instances"]
+            else:
+                records = [data]
+        else:
+            raise ValueError(f"Unsupported metadata format in {path}")
+    return {
+        rec["instance_id"]: rec
+        for rec in records
+        if isinstance(rec, dict) and rec.get("instance_id")
+    }
+
+
+def _load_metadata_from_hf(dataset_name: str, split: str) -> Dict[str, Dict[str, Any]]:
+    if hf_load_dataset is None:
+        raise RuntimeError(
+            "datasets library is not installed. Install `datasets` or provide "
+            "--metadata-file to supply SEC-bench instance metadata."
+        )
+    LOG.info("Loading dataset %s (split=%s) from Hugging Face", dataset_name, split)
+    ds = hf_load_dataset(dataset_name, split=split)
+    return {
+        rec["instance_id"]: rec
+        for rec in ds  # type: ignore[assignment]
+        if isinstance(rec, dict) and rec.get("instance_id")
+    }
+
+
+def _ensure_metadata_cache(args: argparse.Namespace) -> None:
+    global INSTANCE_METADATA_CACHE, METADATA_SOURCE_LABEL
+    if INSTANCE_METADATA_CACHE:
+        return
+    if args.metadata_file:
+        path = Path(args.metadata_file).resolve()
+        INSTANCE_METADATA_CACHE = _load_metadata_from_file(path)
+        METADATA_SOURCE_LABEL = str(path)
+    else:
+        dataset_name = args.hf_dataset or DEFAULT_HF_DATASET
+        split = args.hf_split or DEFAULT_HF_SPLIT
+        INSTANCE_METADATA_CACHE = _load_metadata_from_hf(dataset_name, split)
+        METADATA_SOURCE_LABEL = f"{dataset_name}:{split}"
+    LOG.info(
+        "Loaded %s instance metadata entries from %s",
+        len(INSTANCE_METADATA_CACHE),
+        METADATA_SOURCE_LABEL,
+    )
+
+
+def _derive_repo_url(meta: Dict[str, Any]) -> Optional[str]:
+    repo = meta.get("repo")
+    if not repo:
+        return None
+    repo = str(repo).strip()
+    if repo.startswith("http://") or repo.startswith("https://"):
+        return repo
+    if repo.endswith(".git"):
+        repo = repo[:-4]
+    return f"https://github.com/{repo}"
+
+
+def _derive_code_subdir(meta: Dict[str, Any]) -> str:
+    explicit = meta.get("code_subdir")
+    if isinstance(explicit, str) and explicit.strip():
+        value = explicit.strip().lstrip("./")
+        return value or "."
+    work_dir = meta.get("work_dir") or meta.get("workdir")
+    if isinstance(work_dir, str) and work_dir.strip():
+        wd = work_dir.strip()
+        if wd.startswith("/src/"):
+            # In SEC-bench images, repos are placed at /src/<project>.
+            # This indicates we should operate at repo root.
+            return "."
+        wd = wd.lstrip("./")
+        return wd or "."
+    return "."
+
+
+def _derive_language(meta: Dict[str, Any]) -> Optional[str]:
+    lang = meta.get("lang") or meta.get("language")
+    if isinstance(lang, str) and lang.strip():
+        return lang.strip()
+    return None
+
+
+def populate_instance_defaults(args: argparse.Namespace) -> None:
+    """Populate repo/language settings from SEC-bench metadata for given instance."""
+    if not args.instance_id:
+        return
+    need_repo = not args.repo_url
+    need_commit = not args.base_commit
+    need_code_subdir = args.code_subdir == "." or not args.code_subdir
+    need_language = args.language in (None, "", "c")
+    if not (need_repo or need_commit or need_code_subdir or need_language):
+        return
+    _ensure_metadata_cache(args)
+    meta = INSTANCE_METADATA_CACHE.get(args.instance_id)
+    if not meta:
+        raise ValueError(
+            f"Instance '{args.instance_id}' not found in metadata "
+            f"({METADATA_SOURCE_LABEL or 'unknown source'})"
+        )
+    if need_repo:
+        repo_url = _derive_repo_url(meta)
+        if not repo_url:
+            raise ValueError(f"No 'repo' field for instance '{args.instance_id}'")
+        args.repo_url = repo_url
+    if need_commit and meta.get("base_commit"):
+        args.base_commit = meta["base_commit"]
+    if need_code_subdir:
+        args.code_subdir = _derive_code_subdir(meta)
+    if need_language:
+        language = _derive_language(meta)
+        if language:
+            args.language = language
+    if not args.language:
+        args.language = "c"
 
 
 # --------------------------------------------------------------------------- IO
@@ -644,61 +789,6 @@ def run_session(args: argparse.Namespace, cfg: Dict[str, Any]) -> Dict[str, Any]
             raise
     LOG.info("Joern import stdout:\n%s", stdout.strip() or "<empty>")
 
-#     sink_context = textwrap.dedent(
-# f"""\
-# # <SANITIZER_REPORT>
-# # {SANITIZER_REPORT.strip()}
-# # </SANITIZER_REPORT>
-
-# <SANITIZER_EXTRACT>  <!-- parse-only; no free-form analysis -->
-# - Sink function:
-# - Callee implementation file:
-# - Callee internal line (context only; NEVER anchor):
-# - Crashing argument index (0-based as reported):
-# </SANITIZER_EXTRACT>
-
-# <TASK INSTRUCTIONS>
-# Follow the **reordered 6-step pipeline** with hard Gates (S1→S6). One JSON per turn.
-
-# S1 ArgList Gate — Anchor the REAL callsite (never by the callee’s internal line above). After anchoring, PRINT the full argument list and then lock FOCUS to the correct 1-based index (convert reported 0-based by +1; if output disagrees, trust the printed list).
-
-# S2 DDG Gate — In the caller that contains the callsite, run `.ddgIn` on FOCUS (local slice only). If empty → go to S5 immediately.
-
-# S3 Assign Gate — List assignments to FOCUS in the current function; if struct-field propagation exists (e.g., `iargs.from`), also list those writes. Use results to prune sources.
-
-# S4 Taint Gate (mandatory) — First time you use `.reachableBy*`, include imports IN THE SAME query:
-#   `import io.shiftleft.semanticcpg.language._`
-#   `import io.joern.dataflowengineoss.language._`
-# Then run a **NARROW** `.reachableBy` / `.reachableByFlows` using sources derived from S2/S3 (no global wildcards). Any `.reachableBy*` step must set `"expect_paths": true`.
-
-# S5 Pivot Gate — If S2 is empty OR S2/S3 show FOCUS is a parameter/return/struct-field OR S4 produced no path:
-#   • parameter k → pivot to each `caller.argument(k)`;
-#   • return value → enter callee and set FOCUS to the defining return expression;
-#   • struct-field → pivot to the caller that populates it and continue S2–S4.
-# Note new FOCUS and `pivot_reason` in "intent".
-
-# S6 Guard Gate — After a concrete data-flow path exists, collect `.controlledBy.isControlStructure.condition.code` on BOTH the call node and the FOCUS argument node (not on methods), and summarize `path_conditions` in "intent". If none constrain FOCUS, write `"none"`.
-
-# First reply must be PLAN_ONLY (no Joern code):
-# - Output exactly one JSON with `"query": "PLAN_ONLY"`.
-# - In "intent": state `SINK_NAME=njs_string_offset`, `ARG_IDX_0BASED=3`, plan to compute `ARG_IDX_1BASED=ARG_IDX_0BASED+1` but LOCK only after S1 prints args; how you will anchor (caller+line if known; else caller+arg pattern; else disambiguate then verify by DDG/Taint); and the new step plan S1→S2→S3→S4→S5→S6.
-# - Keep a small step budget; if two consecutive steps add no new evidence, change strategy (run S4 or pivot S5).
-
-# Stopping rule — Set `"stop": true` ONLY after showing a concrete **Source → … → Sink(FOCUS)** path AND summarizing `path_conditions`.
-
-# <OUTPUT FORMAT — STRICT JSON ONLY>
-# {{
-#   "query": "...",           // "PLAN_ONLY" or a valid Scala query for Joern
-#   "intent": "...",          // Start with FOCUS=<code> once locked; include new_evidence, path_conditions, pivot_reason (if any)
-#   "expect_paths": false,    // true ONLY if using .reachableBy or .reachableByFlows
-#   "stop": false             // true ONLY when full Source→…→Sink and path_conditions are established
-# }}
-# No extra prose outside JSON; escape quotes; if imports/helpers are needed, include them inside the same "query".
-# </TASK INSTRUCTIONS>
-# """
-# )
-
-
     sink_block = _build_sink_context_block(host_source, SANITIZER_REPORT)
 
     sink_context = textwrap.dedent(
@@ -902,12 +992,29 @@ def build_parser() -> argparse.ArgumentParser:
         default="cpg_tracer/output",
         help="Directory to store resulting JSON summaries",
     )
+    parser.add_argument(
+        "--metadata-file",
+        help="Path to JSON/JSONL file containing SEC-bench instance metadata (optional)",
+    )
+    parser.add_argument(
+        "--hf-dataset",
+        default=DEFAULT_HF_DATASET,
+        help=f"Hugging Face dataset to load instance metadata when --metadata-file is not provided (default: {DEFAULT_HF_DATASET})",
+    )
+    parser.add_argument(
+        "--hf-split",
+        default=DEFAULT_HF_SPLIT,
+        help=f"Dataset split to load from Hugging Face (default: {DEFAULT_HF_SPLIT})",
+    )
     return parser
 
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
     args = build_parser().parse_args()
+    if args.instance_id:
+        populate_instance_defaults(args)
+
     output_dir = Path(args.output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 

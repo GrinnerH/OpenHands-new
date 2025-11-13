@@ -1,3 +1,46 @@
+# 批量运行
+运行指南
+
+  1. 准备实例列表（可选）
+      - 手动列举：ids.txt 中每行一个 instance_id。
+      - 或者把 SEC-bench 官方 JSON/JSONL 导出到 instances.jsonl，字段至少包含 instance_id、repo、base_commit 等。
+  2. 批量执行脚本
+
+     # 读取本地实例列表
+     python -m cpg_tracer.run_instances \
+         --config-file ids.txt \
+         --llm-profile claude \
+         --metadata-file evaluation/benchmarks/sec_bench/instances.jsonl \
+         -- --output-dir cpg_tracer/output
+  3. 使用 HuggingFace 数据集
+```bash
+python -m cpg_tracer.run_instances \
+      --llm-profile claude \
+      --config-file cpg_tracer/ids.txt \
+      -- --output-dir cpg_tracer/output
+```
+     python -m cpg_tracer.run_instances \
+         --all \
+         --llm-profile claude \
+         --hf-dataset SEC-bench/SEC-bench \
+         --hf-split eval \
+         -- --output-dir cpg_tracer/output
+  4. 切片执行（比如第 5~15 个实例）
+
+     python -m cpg_tracer.run_instances \
+         --slice 5:15 \
+         --llm-profile claude \
+         --hf-dataset SEC-bench/SEC-bench \
+         --hf-split eval \
+         -- --output-dir cpg_tracer/output
+  5. 仅查看将要运行的命令
+
+     python -m cpg_tracer.run_instances --config-file ids.txt --dry-run -- --output-dir cpg_tracer/output
+
+  -- 之后的参数都会直接传给 python -m cpg_tracer.backtrace（例如 --output-dir, --joern-port 等）。如果你提供 --metadata-file，
+  backtrace 会优先从该文件读出 repo_url、base_commit、code_subdir、language；否则它会自动加载 HuggingFace 数据集（默认 SEC-bench/
+  SEC-bench, split=eval）并在每次运行中根据 instance_id 填充这些参数。
+
 ## 运行LLM
 python -m vllm.entrypoints.openai.api_server \
     --model /home/ps/DATA1/wwh/hf_cache/hub/models--QCRI--LLMxCPG-Q/snapshots/1f48ab60420d90277207394f1254d27d3375b07e \

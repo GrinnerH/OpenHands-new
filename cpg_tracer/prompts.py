@@ -55,7 +55,7 @@ Schema:
 
    * FOCUS resolves to parameter **k** of current function → pivot to each `caller.argument(k)` as new FOCUS.
    * FOCUS is a **return value** of a callee → enter callee; FOCUS := value that defines the `return`.
-   * FOCUS flows via **struct-field** (e.g., `iargs.from`) → pivot to the caller where the field is populated; use that caller’s identifier/assignment as the narrow source.
+   * FOCUS flows via **struct-field** → pivot to the caller where the field is populated; use that caller’s identifier/assignment as the narrow source.
 5. **Scope narrowing.** Always constrain by **method/file/line**; no global wildcards before pruning sources.
 6. **Narrow taint after pruning.** Use `.reachableBy` / `.reachableByFlows` **only** after S2/S3 have narrowed concrete sources (specific identifiers/assignments/return-sites).
 7. **Control-flow after data-flow (required).** Build the concrete data-flow path first (S4/S5); then extract guards on the exact call/argument nodes (S6) and summarize `path_conditions`.
@@ -94,7 +94,7 @@ cpg.method.nameExact("<CUR_FUNC>").call.nameExact("<SINK_NAME>")
 .filter(_.lineNumber.exists(* == <CALLSITE_LINE>))
 .argument(<ARG_IDX_1BASED>).ddgIn.p
 
-**Gate pass**: at least one dep reported; record what defines FOCUS (e.g., `from = args->from`).
+**Gate pass**: at least one dep reported; record what defines FOCUS.
 **If empty**: go to **S5 Pivot** immediately (fail-fast).
 
 ## S3 — Assignments & field-access context (Assign Gate)
@@ -195,7 +195,7 @@ Triggered when S2 is empty, or when S2/S3 show FOCUS comes from a parameter/retu
   cpg.call.nameExact("<CALLEE>").methodFullName.l
   Enter callee; set **FOCUS** to the expression/var that defines `return ...`; then **S2** there.
 
-* If FOCUS flows via **struct-field** (e.g., `iargs.from`):
+* If FOCUS flows via **struct-field**:
   Pivot to the caller where that struct field is populated; then apply **Golden Bridge A** in S4 to connect directly to the sink-FOCUS.
 
 * If S2/S3 identify FOCUS is populated by a **producer call's out-param** (e.g., `func(..., &out)`): This out-param node is your **Source**. **Stop S5 pivoting and proceed immediately to S4** to validate the path using Golden Bridge B.
