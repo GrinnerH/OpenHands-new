@@ -39,7 +39,8 @@ python -m cpg_tracer.run_instances \
 
   -- 之后的参数都会直接传给 python -m cpg_tracer.backtrace（例如 --output-dir, --joern-port 等）。如果你提供 --metadata-file，
   backtrace 会优先从该文件读出 repo_url、base_commit、code_subdir、language；否则它会自动加载 HuggingFace 数据集（默认 SEC-bench/
-  SEC-bench, split=eval）并在每次运行中根据 instance_id 填充这些参数。
+  SEC-bench, split=eval）并在每次运行中根据 instance_id 填充这些参数。元数据必须包含 `sanitizer_report` 字段（或兼容字段 `asan_report`），
+  用于驱动每个实例的 SINK_CONTEXT。
 
 ## 运行LLM
 python -m vllm.entrypoints.openai.api_server \
@@ -61,6 +62,8 @@ python -m cpg_tracer.backtrace \
   --compose-file cpg_tracer/docker-compose.yml \
   --llm-profile claude
 ```
+
+如果实例缺少 `sanitizer_report`，请在对应的元数据条目里补齐该字段后再运行（该信息是定位真实 callsite 的唯一来源）。
 
 ### 构建joern_analysis
 docker build -t joern_analysis -f Dockerfile .
@@ -111,8 +114,9 @@ python -m cpg_tracer.llmxcpg_ported.generate_and_run_queries --help
 - 第一次执行会自动 `git clone` + `checkout` 到 `evaluation/benchmarks/sec_bench/<instance_id>`，后续运行直接复用。
 - 如果 Joern 容器已存在，可在运行前手动 `docker compose -f cpg_tracer/docker-compose.yml up -d joern_server_<port>`。
 - 结果文件
-  - `cpg_tracer/output/<instance_id>.json`：包含路径、上下文、每轮 LLM/Joern 交互步骤、对话记录等。
-  - `cpg_tracer/output/<instance_id>.md`：可读的 Source/Transform/Sink 摘要。
+  - `cpg_tracer/output/<instance_id>/<instance_id>.json`：包含路径、上下文、每轮 LLM/Joern 交互步骤、对话记录等。
+  - `cpg_tracer/output/<instance_id>/<instance_id>.md`：可读的 Source/Transform/Sink 摘要。
+  - `cpg_tracer/output/<instance_id>/<instance_id>.conversation.log`：原始对话日志，便于调试。
 
 ### 常见问题
 

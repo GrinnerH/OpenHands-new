@@ -27,7 +27,7 @@ except ImportError:  # pragma: no cover - fallback when litellm not installed
     USING_LITELLM = False
 
 from .joern_manager import JoernManager, QueryStatus
-from .prompts import SYSTEM_PROMPT, SANITIZER_REPORT
+from .prompts import SYSTEM_PROMPT
 from .summary_prompt import SYSTEM_PROMPT as SUMMARY_SYSTEM_PROMPT
 from .c_parser import analyze_c_code
 from .enhancer import get_context
@@ -111,6 +111,19 @@ def _load_metadata_from_hf(dataset_name: str, split: str) -> Dict[str, Dict[str,
     }
 
 
+def _get_instance_metadata(args: argparse.Namespace) -> Dict[str, Any]:
+    if not args.instance_id:
+        raise ValueError("instance-id is required to access dataset metadata")
+    _ensure_metadata_cache(args)
+    meta = INSTANCE_METADATA_CACHE.get(args.instance_id)
+    if not meta:
+        raise ValueError(
+            f"Instance '{args.instance_id}' not found in metadata "
+            f"({METADATA_SOURCE_LABEL or 'unknown source'})"
+        )
+    return meta
+
+
 def _ensure_metadata_cache(args: argparse.Namespace) -> None:
     global INSTANCE_METADATA_CACHE, METADATA_SOURCE_LABEL
     if INSTANCE_METADATA_CACHE:
@@ -177,13 +190,7 @@ def populate_instance_defaults(args: argparse.Namespace) -> None:
     need_language = args.language in (None, "", "c")
     if not (need_repo or need_commit or need_code_subdir or need_language):
         return
-    _ensure_metadata_cache(args)
-    meta = INSTANCE_METADATA_CACHE.get(args.instance_id)
-    if not meta:
-        raise ValueError(
-            f"Instance '{args.instance_id}' not found in metadata "
-            f"({METADATA_SOURCE_LABEL or 'unknown source'})"
-        )
+    meta = _get_instance_metadata(args)
     if need_repo:
         repo_url = _derive_repo_url(meta)
         if not repo_url:
@@ -199,6 +206,30 @@ def populate_instance_defaults(args: argparse.Namespace) -> None:
             args.language = language
     if not args.language:
         args.language = "c"
+
+
+# --------------------------------------------------------------------------- sink helpers
+def resolve_sanitizer_report(args: argparse.Namespace) -> str:
+    cached = getattr(args, "_cached_sanitizer_report", None)
+    if isinstance(cached, str) and cached.strip():
+        return cached
+
+    if not args.instance_id:
+        raise ValueError("instance-id is required to load sanitizer report metadata")
+    meta = _get_instance_metadata(args)
+    text: Optional[str] = None
+    report_value = meta.get("sanitizer_report") or meta.get("asan_report")
+    if isinstance(report_value, str):
+        text = report_value.strip()
+
+    if not text:
+        raise ValueError(
+            "Sanitizer report not found in metadata. Ensure dataset provides "
+            "a 'sanitizer_report' (or 'asan_report') field."
+        )
+
+    setattr(args, "_cached_sanitizer_report", text)
+    return text
 
 
 # --------------------------------------------------------------------------- IO
@@ -764,7 +795,7 @@ def map_container_path(host_path: Path, args: argparse.Namespace) -> Path:
     return Path(args.container_mount_base).joinpath(rel)
 
 
-def run_session(args: argparse.Namespace, cfg: Dict[str, Any]) -> Dict[str, Any]:
+def run_session(args: argparse.Namespace, cfg: Dict[str, Any], sanitizer_report: str) -> Dict[str, Any]:
     repo_root = prepare_repo(args)
     host_source = get_source_dir(repo_root, args.code_subdir)
     container_repo = map_container_path(host_source, args)
@@ -789,14 +820,14 @@ def run_session(args: argparse.Namespace, cfg: Dict[str, Any]) -> Dict[str, Any]
             raise
     LOG.info("Joern import stdout:\n%s", stdout.strip() or "<empty>")
 
-    sink_block = _build_sink_context_block(host_source, SANITIZER_REPORT)
+    sink_block = _build_sink_context_block(host_source, sanitizer_report)
 
     sink_context = textwrap.dedent(
 f"""\
 {sink_block}
 
 <SANITIZER_REPORT>
-{SANITIZER_REPORT.strip()}
+{sanitizer_report.strip()}
 </SANITIZER_REPORT>
 
 <TASK INSTRUCTIONS>
@@ -1021,9 +1052,12 @@ def main() -> None:
     config_path = Path(args.config).resolve()
     cfg = load_llm_config(config_path, args.llm_profile)
 
-    result = run_session(args, cfg)
+    sanitizer_report = resolve_sanitizer_report(args)
+    result = run_session(args, cfg, sanitizer_report)
     suffix = args.instance_id or "output"
-    summary_path = output_dir / f"{suffix}.json"
+    instance_dir = output_dir / suffix
+    instance_dir.mkdir(parents=True, exist_ok=True)
+    summary_path = instance_dir / f"{suffix}.json"
     summary_path.write_text(json.dumps(result, indent=2, ensure_ascii=False))
 
     dataflow_json, summary_log = generate_dataflow_summary(
@@ -1033,7 +1067,7 @@ def main() -> None:
         suffix,
     )
 
-    md_path = output_dir / f"{suffix}.md"
+    md_path = instance_dir / f"{suffix}.md"
     conversation_lines = result.get("conversation_log", [])
     conversation_text = "\n".join(conversation_lines)
     md_body = result.get("summary", "")
@@ -1044,7 +1078,7 @@ def main() -> None:
         md_body += "\n\n---\n## DATAFLOW Summary Conversation\n```\n" + summary_text + "\n```\n"
     md_path.write_text(md_body)
     LOG.info("Appended DATAFLOW_JSON for %s", suffix)
-    convo_path = output_dir / f"{suffix}.conversation.log"
+    convo_path = instance_dir / f"{suffix}.conversation.log"
     if conversation_lines:
         convo_path.write_text(conversation_text + "\n")
     LOG.info("Wrote %s and %s", summary_path, md_path)
