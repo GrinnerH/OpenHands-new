@@ -359,21 +359,28 @@ COPY ./code/openhands/runtime/utils/runtime_templates/install.sh /tmp/install_mi
 #     mkdir -p /root/.local/share/micromamba && \
 #     # Set up environment variables for system-wide access
 #     echo 'export PATH="/openhands/micromamba/bin:$PATH"' >> /etc/environment
-RUN mkdir -p /openhands/micromamba/bin && \
+RUN set -euxo pipefail && \
+    echo "[micromamba] step 0: prepare dirs" && \
+    mkdir -p /openhands/micromamba/bin && \
     chmod +x /tmp/install_micromamba.sh && \
-    /bin/bash -c "PREFIX_LOCATION=/openhands/micromamba BIN_FOLDER=/openhands/micromamba/bin INIT_YES=no CONDA_FORGE_YES=yes /tmp/install_micromamba.sh" && \
-    # 使用清华镜像设置默认频道
-    /openhands/micromamba/bin/micromamba config add channels https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud/conda-forge && \
-    /openhands/micromamba/bin/micromamba config remove channels defaults && \
+    echo "[micromamba] step 1: show installer first lines" && \
+    head -n 40 /tmp/install_micromamba.sh || true && \
+    echo "[micromamba] step 2: run installer with debug" && \
+    PREFIX_LOCATION=/openhands/micromamba \
+    BIN_FOLDER=/openhands/micromamba/bin \
+    INIT_YES=no \
+    CONDA_FORGE_YES=yes \
+    bash -x /tmp/install_micromamba.sh -c https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud/conda-forge \
+    || { echo "[micromamba] installer FAILED with code $?"; exit 1; } && \
+    echo "[micromamba] step 3: installer finished, check binary" && \
+    ls -R /openhands/micromamba || true && \
+    /openhands/micromamba/bin/micromamba --version || true && \
+    echo "[micromamba] step 4: configure channels" && \
+    /openhands/micromamba/bin/micromamba config remove channels defaults || true && \
     /openhands/micromamba/bin/micromamba config list && \
     chown -R openhands:openhands /openhands/micromamba && \
-    # Create read-only shared access to micromamba for all users
-    # This allows both root and openhands users to access the same packages
-    # while maintaining security by keeping openhands as the owner
     chmod -R 755 /openhands/micromamba && \
-    # Create a separate writable location for root's micromamba cache/config
     mkdir -p /root/.local/share/micromamba && \
-    # Set up environment variables for system-wide access
     echo 'export PATH="/openhands/micromamba/bin:$PATH"' >> /etc/environment
 # /修改
 
