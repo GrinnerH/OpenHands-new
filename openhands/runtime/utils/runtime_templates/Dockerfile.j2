@@ -16,6 +16,12 @@ ENV POETRY_VIRTUALENVS_PATH=/openhands/poetry \
 
 # Set PATH early to ensure system commands are available
 ENV PATH="/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+# 替换为国内源
+#RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="/openhands/bin" sh
+RUN curl -LsSf https://ghproxy.com/https://astral.sh/uv/install.sh | \
+    env UV_INSTALL_DIR="/openhands/bin" \
+        UV_INSTALLER_GITHUB_BASE_URL="https://ghproxy.com/https://github.com" \
+        sh
 
 # apt 镜像
 RUN sed -i 's@http://.*archive.ubuntu.com/ubuntu/@https://mirrors.tuna.tsinghua.edu.cn/ubuntu/@g' /etc/apt/sources.list && \
@@ -58,8 +64,14 @@ RUN ln -s "$(dirname $(which node))/corepack" /usr/local/bin/corepack && \
     curl -fsSL --compressed https://install.python-poetry.org | python -
 {% endif %}
 
+# 替换为国内源
 # Install uv (required by MCP)
-RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="/openhands/bin" sh
+# RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="/openhands/bin" sh
+RUN curl -LsSf https://ghproxy.com/https://astral.sh/uv/install.sh | \
+    env UV_INSTALL_DIR="/openhands/bin" \
+        UV_INSTALLER_GITHUB_BASE_URL="https://ghproxy.com/https://github.com" \
+        sh
+
 # Add /openhands/bin to PATH
 ENV PATH="/openhands/bin:${PATH}"
 
