@@ -345,9 +345,25 @@ ARG MICROMAMBA_INSTALL_URL="https://micro.mamba.pm/install.sh"
 # ARG MICROMAMBA_INSTALL_URL="https://ghfast.top/https://raw.githubusercontent.com/conda-forge/miniforge/main/scripts/micromamba-install.sh"
 COPY ./code/openhands/runtime/utils/runtime_templates/install.sh /tmp/install_micromamba.sh
 # 替换$(curl -L ${MICROMAMBA_INSTALL_URL})为tmp/install_micromamba.sh
+# RUN mkdir -p /openhands/micromamba/bin && \
+#     chmod +x /tmp/install_micromamba.sh && \
+#     /bin/bash -c "PREFIX_LOCATION=/openhands/micromamba BIN_FOLDER=/openhands/micromamba/bin INIT_YES=no CONDA_FORGE_YES=yes /tmp/install_micromamba.sh -c https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud/conda-forge" && \
+#     /openhands/micromamba/bin/micromamba config remove channels defaults && \
+#     /openhands/micromamba/bin/micromamba config list && \
+#     chown -R openhands:openhands /openhands/micromamba && \
+#     # Create read-only shared access to micromamba for all users
+#     # This allows both root and openhands users to access the same packages
+#     # while maintaining security by keeping openhands as the owner
+#     chmod -R 755 /openhands/micromamba && \
+#     # Create a separate writable location for root's micromamba cache/config
+#     mkdir -p /root/.local/share/micromamba && \
+#     # Set up environment variables for system-wide access
+#     echo 'export PATH="/openhands/micromamba/bin:$PATH"' >> /etc/environment
 RUN mkdir -p /openhands/micromamba/bin && \
     chmod +x /tmp/install_micromamba.sh && \
-    /bin/bash -c "PREFIX_LOCATION=/openhands/micromamba BIN_FOLDER=/openhands/micromamba/bin INIT_YES=no CONDA_FORGE_YES=yes /tmp/install_micromamba.sh -c https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud/conda-forge" && \
+    /bin/bash -c "PREFIX_LOCATION=/openhands/micromamba BIN_FOLDER=/openhands/micromamba/bin INIT_YES=no CONDA_FORGE_YES=yes /tmp/install_micromamba.sh" && \
+    # 使用清华镜像设置默认频道
+    /openhands/micromamba/bin/micromamba config add channels https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud/conda-forge && \
     /openhands/micromamba/bin/micromamba config remove channels defaults && \
     /openhands/micromamba/bin/micromamba config list && \
     chown -R openhands:openhands /openhands/micromamba && \
