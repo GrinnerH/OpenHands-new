@@ -366,8 +366,8 @@ RUN set -euxo pipefail && \
     echo "[micromamba] step 1: show installer first lines" && \
     head -n 40 /tmp/install_micromamba.sh || true && \
     # --- 插入修复：在执行脚本前，使用 sed 将 GitHub URL 替换为 ghproxy 代理 ---
-    echo "[micromamba] step 1.5: Patching installer to use ghproxy.com" && \
-    sed -i 's|https://github.com/mamba-org/micromamba-releases|https://ghproxy.com/https://github.com/mamba-org/micromamba-releases|g' /tmp/install_micromamba.sh && \
+    echo "[micromamba] step 1.5: Patching installer to use github.com.cnpmjs.org" && \
+    sed -i 's|https://github.com/mamba-org/micromamba-releases|https://github.com.cnpmjs.org/mamba-org/micromamba-releases|g' /tmp/install_micromamba.sh && \
     # --- 修复结束 ---
     echo "[micromamba] step 2: run installer with debug" && \
     PREFIX_LOCATION=/openhands/micromamba \
