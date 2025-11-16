@@ -1,165 +1,5 @@
 [
   {
-    "instance_id": "njs.cve-2022-31307",
-    "dataflow": {
-      "schema": {
-        "name": "dataflow",
-        "version": "1"
-      },
-      "status": {
-        "result": "complete",
-        "reason": "ok"
-      },
-      "sink": {
-        "name": "njs_string_offset",
-        "caller_func": "njs_object_iterate_reverse",
-        "callsite": {
-          "file": "njs_string.c",
-          "line": 2535,
-          "code": "njs_string_offset(string_prop.start, end, from)"
-        },
-        "focus": {
-          "arg_index_1based": 3,
-          "code": "from"
-        },
-        "tags": [
-          "INDEX",
-          "BOUNDS"
-        ]
-      },
-      "paths": [
-        {
-          "id": "p0",
-          "source": {
-            "kind": "PARAM",
-            "symbol": "args",
-            "function": "njs_array_prototype_reverse_iterator",
-            "location": {
-              "file": "njs_iterator.c",
-              "line": 2341,
-              "code": "njs_value_t *args"
-            }
-          },
-          "steps": [
-            {
-              "kind": "CALL_ARG_PASS",
-              "function": "njs_array_prototype_reverse_iterator",
-              "location": {
-                "file": "njs_iterator.c",
-                "line": 2350,
-                "code": "njs_argument(args, 0)"
-              },
-              "details": {
-                "call": "njs_argument",
-                "arg_index": 1
-              }
-            },
-            {
-              "kind": "FIELD_WRITE",
-              "function": "njs_array_prototype_reverse_iterator",
-              "location": {
-                "file": "njs_iterator.c",
-                "line": 2350,
-                "code": "iargs.value = njs_argument(args, 0)"
-              },
-              "value_after": "njs_argument(args, 0)"
-            },
-            {
-              "kind": "CALL_ARG_PASS",
-              "function": "njs_array_prototype_reverse_iterator",
-              "location": {
-                "file": "njs_iterator.c",
-                "line": 2359,
-                "code": "njs_value_length(vm, iargs.value, &length)"
-              },
-              "details": {
-                "call": "njs_value_length",
-                "arg_index": 2,
-                "out_param": true
-              }
-            },
-            {
-              "kind": "ASSIGN",
-              "function": "njs_array_prototype_reverse_iterator",
-              "location": {
-                "file": "njs_iterator.c",
-                "line": 2379,
-                "code": "from = length - 1"
-              },
-              "value_after": "length - 1"
-            },
-            {
-              "kind": "ASSIGN",
-              "function": "njs_array_prototype_reverse_iterator",
-              "location": {
-                "file": "njs_iterator.c",
-                "line": 2416,
-                "code": "iargs.from = from"
-              },
-              "value_after": "from"
-            },
-            {
-              "kind": "FIELD_READ",
-              "function": "njs_object_iterate_reverse",
-              "location": {
-                "file": "njs_iterator.c",
-                "line": 474,
-                "code": "from = args->from"
-              },
-              "value_after": "args->from"
-            },
-            {
-              "kind": "CALL_ARG_PASS",
-              "function": "njs_object_iterate_reverse",
-              "location": {
-                "file": "njs_iterator.c",
-                "line": 563,
-                "code": "njs_string_offset(string_prop.start, end, from)"
-              },
-              "details": {
-                "call": "njs_string_offset",
-                "arg_index": 3
-              }
-            }
-          ],
-          "sink_use": {
-            "function": "njs_object_iterate_reverse",
-            "location": {
-              "file": "njs_string.c",
-              "line": 2535,
-              "code": "map[index / NJS_STRING_MAP_STRIDE - 1]"
-            },
-            "focus_arg_index_1based": 3
-          },
-          "constraints": {
-            "guards_parsed": [],
-            "guards_raw": []
-          },
-          "call_chain": [
-            "njs_array_prototype_reverse_iterator",
-            "njs_object_iterate_reverse",
-            "njs_string_offset"
-          ],
-          "vars_of_interest": [
-            "from",
-            "length",
-            "args",
-            "iargs.value",
-            "iargs.from"
-          ],
-          "levers": [
-            "user-controlled array object via args[0]",
-            "array length extracted without bounds validation",
-            "from = length - 1 computation",
-            "no upper bounds check on index before array access"
-          ]
-        }
-      ],
-      "preferred_path_id": "p0",
-      "guards_pending": true
-    }
-  },
-  {
     "instance_id": "njs.cve-2021-46462",
     "dataflow": {
       "schema": {
@@ -171,72 +11,72 @@
         "reason": "no_path"
       },
       "sink": {
-        "name": "njs_object_set_prototype",
-        "caller_func": "njs_object_prototype_proto",
+        "name": "<operator>.indirectFieldAccess",
+        "caller_func": "njs_object_set_prototype",
         "callsite": {
-          "file": "njs_object.c",
-          "line": 2162,
-          "code": "njs_object_set_prototype(vm, object, setval)"
+          "file": "src/njs_object.c",
+          "line": 2136,
+          "code": "proto->__proto__"
         },
         "focus": {
-          "arg_index_1based": 3,
-          "code": "setval"
+          "arg_index_1based": 1,
+          "code": "proto"
         },
         "tags": [
-          "PTR",
-          "PROTO"
+          "POINTER_STRUCT",
+          "FIELD_ACCESS"
         ]
       },
       "paths": [],
       "guards_pending": true,
       "partial_evidence": {
-        "focus": "setval",
+        "focus": "proto",
         "suspected_sources": [
           {
             "kind": "PARAM",
-            "symbol": "setval",
-            "function": "njs_object_prototype_proto",
+            "symbol": "value",
+            "function": "njs_object_set_prototype",
             "location": {
-              "file": "njs_object.c",
-              "line": 2148,
-              "code": "njs_value_t *setval"
+              "file": "src/njs_object.c",
+              "line": 2112,
+              "code": "const njs_value_t *value"
             }
           },
           {
-            "kind": "CONST",
-            "symbol": "NULL",
-            "function": "njs_object_get_prototype_of",
+            "kind": "RETURN",
+            "symbol": "njs_object",
+            "function": "njs_object_set_prototype",
             "location": {
-              "file": "njs_object.c",
-              "line": 1479,
-              "code": "njs_object_prototype_proto(vm, NULL, value, NULL, &vm->retval)"
+              "file": "src/njs_object.c",
+              "line": 2116,
+              "code": "njs_object(value)"
             }
           },
           {
-            "kind": "PARAM",
-            "symbol": "args",
-            "function": "njs_object_get_prototype_of",
+            "kind": "FIELD_WRITE",
+            "symbol": "proto",
+            "function": "njs_object_set_prototype",
             "location": {
-              "file": "njs_object.c",
-              "line": 1470,
-              "code": "njs_value_t *args"
+              "file": "src/njs_object.c",
+              "line": 2136,
+              "code": "proto = proto->__proto__"
             }
           }
         ],
         "last_seen": {
-          "function": "njs_object_prototype_proto",
+          "function": "njs_object_set_prototype",
           "location": {
-            "file": "njs_object.c",
-            "line": 2162,
-            "code": "njs_object_set_prototype(vm, object, setval)"
+            "file": "src/njs_object.c",
+            "line": 2136,
+            "code": "proto->__proto__"
           }
         },
         "next_hints": [
-          "Trace setval parameter origin: caller njs_object_get_prototype_of passes NULL at line 1479",
-          "Examine njs_arg(args, nargs, 1) at line 1476 to determine if args[1] can be attacker-controlled",
-          "Check if njs_object_get_prototype_of is a callback entry point with untrusted args",
-          "Verify NULL dereference in njs_object_set_prototype do-while loop at line 2136",
-          "Analyze proto = njs_object(value) at line 2116 for NULL return conditions"
+          "Trace njs_object(value) return type to confirm NULL/invalid pointer possibility",
+          "Examine loop condition at line 2138 (while proto != NULL) to verify guard coverage",
+          "Pivot to caller njs_object_prototype_proto (line 2162) to understand setval source",
+          "Check if proto->__proto__ chain can be corrupted or point to invalid memory",
+          "Analyze cyclic __proto__ detection at line 2165 error message context"
         ]
       }
     }
@@ -249,24 +89,24 @@
         "version": "1"
       },
       "status": {
-        "result": "partial",
-        "reason": "max_iterations"
+        "result": "complete",
+        "reason": "ok"
       },
       "sink": {
-        "name": "njs_lvlhsh_bucket_find",
-        "caller_func": "njs_lvlhsh_find",
+        "name": "njs_lvlhsh_valid_entry",
+        "caller_func": "njs_lvlhsh_bucket_find",
         "callsite": {
           "file": "njs_lvlhsh.c",
-          "line": 181,
-          "code": "njs_lvlhsh_bucket_find(lhq, slot)"
+          "line": 231,
+          "code": "njs_lvlhsh_valid_entry(e)"
         },
         "focus": {
-          "arg_index_1based": 2,
-          "code": "slot"
+          "arg_index_1based": 1,
+          "code": "e"
         },
         "tags": [
-          "PTR",
-          "BOUNDS_CHECK"
+          "POINTER_STRUCT",
+          "DEREFERENCE"
         ]
       },
       "paths": [
@@ -277,9 +117,9 @@
             "symbol": "lh",
             "function": "njs_lvlhsh_find",
             "location": {
-              "file": null,
+              "file": "njs_lvlhsh.c",
               "line": null,
-              "code": "lh"
+              "code": "njs_lvlhsh_t* lh"
             }
           },
           "steps": [
@@ -292,26 +132,62 @@
                 "code": "slot = lh->slot"
               },
               "value_before": "lh",
-              "value_after": "slot",
-              "details": {
-                "field": "slot",
-                "struct_type": "njs_lvlhsh_t*"
-              }
+              "value_after": "lh->slot"
+            },
+            {
+              "kind": "ASSIGN",
+              "function": "njs_lvlhsh_find",
+              "location": {
+                "file": "njs_lvlhsh.c",
+                "line": 176,
+                "code": "slot = lh->slot"
+              },
+              "value_before": null,
+              "value_after": "slot"
             },
             {
               "kind": "CALL_ARG_PASS",
               "function": "njs_lvlhsh_find",
               "location": {
                 "file": "njs_lvlhsh.c",
-                "line": 181,
+                "line": 208,
                 "code": "njs_lvlhsh_bucket_find(lhq, slot)"
               },
               "value_before": "slot",
-              "value_after": "slot",
-              "details": {
-                "arg_index": 2,
-                "callee": "njs_lvlhsh_bucket_find"
-              }
+              "value_after": "bkt"
+            },
+            {
+              "kind": "ASSIGN",
+              "function": "njs_lvlhsh_bucket_find",
+              "location": {
+                "file": "njs_lvlhsh.c",
+                "line": 226,
+                "code": "bucket = njs_lvlhsh_bucket(lhq->proto, bkt)"
+              },
+              "value_before": "bkt",
+              "value_after": "bucket"
+            },
+            {
+              "kind": "ASSIGN",
+              "function": "njs_lvlhsh_bucket_find",
+              "location": {
+                "file": "njs_lvlhsh.c",
+                "line": 228,
+                "code": "e = bucket"
+              },
+              "value_before": "bucket",
+              "value_after": "e"
+            },
+            {
+              "kind": "CALL_ARG_PASS",
+              "function": "njs_lvlhsh_bucket_find",
+              "location": {
+                "file": "njs_lvlhsh.c",
+                "line": 231,
+                "code": "njs_lvlhsh_valid_entry(e)"
+              },
+              "value_before": "e",
+              "value_after": null
             }
           ],
           "sink_use": {
@@ -321,7 +197,7 @@
               "line": 231,
               "code": "njs_lvlhsh_valid_entry(e)"
             },
-            "focus_arg_index_1based": 2
+            "focus_arg_index_1based": 1
           },
           "constraints": {
             "guards_parsed": [],
@@ -329,72 +205,26 @@
           },
           "call_chain": [
             "njs_lvlhsh_find",
-            "njs_lvlhsh_bucket_find"
+            "njs_lvlhsh_bucket_find",
+            "njs_lvlhsh_valid_entry"
           ],
           "vars_of_interest": [
-            "slot",
             "lh",
-            "e",
-            "bkt"
+            "slot",
+            "bkt",
+            "bucket",
+            "e"
           ],
           "levers": [
-            "malformed bucket structure",
-            "corrupted loop counter n",
-            "out-of-bounds pointer arithmetic"
+            "uninitialized lh->slot field",
+            "missing NULL check on slot before njs_lvlhsh_bucket_find call",
+            "missing validity check on bucket return value",
+            "missing NULL check on e before dereference"
           ]
         }
       ],
       "preferred_path_id": "p0",
-      "guards_pending": true,
-      "partial_evidence": {
-        "focus": "slot",
-        "suspected_sources": [
-          {
-            "kind": "PARAM",
-            "symbol": "lh",
-            "function": "njs_lvlhsh_find",
-            "location": {
-              "file": null,
-              "line": null,
-              "code": "lh"
-            }
-          },
-          {
-            "kind": "FIELD_WRITE",
-            "symbol": "object->hash",
-            "function": "njs_object_property",
-            "location": {
-              "file": null,
-              "line": 59,
-              "code": "&object->hash"
-            }
-          },
-          {
-            "kind": "PARAM",
-            "symbol": "value",
-            "function": "njs_value_to_number",
-            "location": {
-              "file": null,
-              "line": 18,
-              "code": "value"
-            }
-          }
-        ],
-        "last_seen": {
-          "function": "njs_value_to_number",
-          "location": {
-            "file": null,
-            "line": 18,
-            "code": "njs_value_to_primitive(vm, &primitive, value, 0)"
-          }
-        },
-        "next_hints": [
-          "Pivot njs_value_to_number parameter 2 (value) to callers: njs_value_to_numeric, njs_value_to_length, njs_value_to_int32, etc.",
-          "Trace user-controlled input entry point through njs_value_to_numeric or njs_value_to_length",
-          "Examine hash table initialization and bounds validation in njs_lvlhsh_bucket_find loop (line 246: e += NJS_LVLHSH_ENTRY_SIZE)",
-          "Check if loop condition (n != 0) can be bypassed by corrupting n or bucket structure"
-        ]
-      }
+      "guards_pending": false
     }
   },
   {
@@ -405,115 +235,68 @@
         "version": "1"
       },
       "status": {
-        "result": "complete",
-        "reason": "ok"
+        "result": "partial",
+        "reason": "no_path"
       },
       "sink": {
-        "name": "njs_value_own_enumerate",
-        "caller_func": "njs_object_traverse",
+        "name": "njs_object_slots",
+        "caller_func": "njs_value_own_enumerate",
         "callsite": {
-          "file": "src/njs_object.c",
-          "line": 1230,
-          "code": "njs_value_own_enumerate(vm, &s->value, <unknown> NJS_ENUM_KEYS, NJS_ENUM_STRING | NJS_ENUM_SYMBOL, 1)"
+          "file": "src/njs_value.c",
+          "line": 240,
+          "code": "slots = njs_object_slots(value)"
         },
         "focus": {
-          "arg_index_1based": 2,
-          "code": "&s->value"
+          "arg_index_1based": 1,
+          "code": "value"
         },
         "tags": [
-          "PTR"
+          "POINTER_STRUCT",
+          "NULL_DEREF"
         ]
       },
-      "paths": [
-        {
-          "id": "p0",
-          "source": {
-            "kind": "PARAM",
+      "paths": [],
+      "guards_pending": true,
+      "partial_evidence": {
+        "focus": "&s->value",
+        "suspected_sources": [
+          {
+            "kind": "FIELD_WRITE",
             "symbol": "state",
             "function": "njs_object_traverse",
             "location": {
-              "file": "src/njs_object.c",
+              "file": null,
               "line": 1146,
               "code": "njs_traverse_t state[NJS_TRAVERSE_MAX_DEPTH]"
             }
           },
-          "steps": [
-            {
-              "kind": "ASSIGN",
-              "function": "njs_object_traverse",
-              "location": {
-                "file": "src/njs_object.c",
-                "line": 1148,
-                "code": "s = &state[0]"
-              }
-            },
-            {
-              "kind": "FIELD_READ",
-              "function": "njs_object_traverse",
-              "location": {
-                "file": "src/njs_object.c",
-                "line": 1152,
-                "code": "&s->value"
-              }
-            },
-            {
-              "kind": "CALL_ARG_PASS",
-              "function": "njs_object_traverse",
-              "location": {
-                "file": "src/njs_object.c",
-                "line": 1152,
-                "code": "njs_value_own_enumerate(..., &s->value, ...)"
-              }
-            },
-            {
-              "kind": "CALL_ARG_PASS",
-              "function": "njs_value_own_enumerate",
-              "location": {
-                "file": "src/njs_value.c",
-                "line": 230,
-                "code": "njs_value_t *value"
-              }
-            },
-            {
-              "kind": "FIELD_READ",
-              "function": "njs_value_own_enumerate",
-              "location": {
-                "file": "src/njs_value.c",
-                "line": 240,
-                "code": "njs_object_slots(value)"
-              }
-            }
-          ],
-          "sink_use": {
-            "function": "njs_object_traverse",
+          {
+            "kind": "PARAM",
+            "symbol": "value",
+            "function": "njs_value_own_enumerate",
             "location": {
-              "file": "src/njs_object.c",
-              "line": 1230,
-              "code": "njs_value_own_enumerate(vm, &s->value, <unknown> NJS_ENUM_KEYS, NJS_ENUM_STRING | NJS_ENUM_SYMBOL, 1)"
-            },
-            "focus_arg_index_1based": 2
-          },
-          "constraints": {
-            "guards_parsed": [],
-            "guards_raw": []
-          },
-          "call_chain": [
-            "njs_object_traverse",
-            "njs_value_own_enumerate"
-          ],
-          "vars_of_interest": [
-            "state",
-            "s",
-            "value"
-          ],
-          "levers": [
-            "uninitialized state array element",
-            "null pointer dereference in njs_object_slots"
-          ]
-        }
-      ],
-      "preferred_path_id": "p0",
-      "guards_pending": false
+              "file": "src/njs_value.c",
+              "line": 230,
+              "code": "njs_value_t *value"
+            }
+          }
+        ],
+        "last_seen": {
+          "function": "njs_object_traverse",
+          "location": {
+            "file": null,
+            "line": 1230,
+            "code": "njs_value_own_enumerate(vm, &s->value, NJS_ENUM_KEYS, NJS_ENUM_STRING | NJS_ENUM_SYMBOL, 1)"
+          }
+        },
+        "next_hints": [
+          "s->value field is never initialized in njs_object_traverse before being passed to njs_value_own_enumerate at line 1230",
+          "state array declared at line 1146 as local uninitialized: njs_traverse_t state[NJS_TRAVERSE_MAX_DEPTH]",
+          "s = &state[0] at line 1148; s->value contains garbage/uninitialized memory",
+          "Guard njs_is_object(value) at line 238 does not prevent NULL deref if value points to uninitialized memory",
+          "Trace callers of njs_object_traverse to confirm how object parameter flows; pivot to njs_object_traverse callers at lines 1153, 1230"
+        ]
+      }
     }
   },
   {
@@ -528,20 +311,21 @@
         "reason": "no_path"
       },
       "sink": {
-        "name": "njs_vmcode_interpreter",
+        "name": "<operator>.indirectFieldAccess",
         "caller_func": "njs_vmcode_interpreter",
         "callsite": {
-          "file": "njs_vmcode.c",
+          "file": "src/njs_vmcode.c",
           "line": 802,
-          "code": "if (next->index < next->array->length)"
+          "code": "next->array->length"
         },
         "focus": {
-          "arg_index_1based": null,
-          "code": "next"
+          "arg_index_1based": 1,
+          "code": "next->array"
         },
         "tags": [
-          "DEREFERENCE",
-          "NULL_PTR_DEREF"
+          "POINTER_STRUCT",
+          "FIELD_ACCESS",
+          "NULL_DEREFERENCE"
         ]
       },
       "paths": [],
@@ -551,60 +335,50 @@
         "focus": "next",
         "suspected_sources": [
           {
-            "kind": "FIELD_WRITE",
-            "symbol": "value2->data.u.next",
+            "kind": "PARAM",
+            "symbol": "vm",
             "function": "njs_vmcode_interpreter",
             "location": {
-              "file": "njs_vmcode.c",
-              "line": 800,
-              "code": "next = value2->data.u.next"
+              "file": "src/njs_vmcode.c",
+              "line": null,
+              "code": "njs_vm_t *vm"
             }
           },
           {
-            "kind": "PARAM",
-            "symbol": "value2",
-            "function": "njs_vmcode_interpreter",
+            "kind": "RETURN",
+            "symbol": "njs_scope_valid_value",
+            "function": "njs_scope_valid_value",
             "location": {
-              "file": "njs_vmcode.c",
-              "line": 142,
-              "code": "value2 = (njs_value_t *) vmcode->operand1"
+              "file": "src/njs_scope.h",
+              "line": 89,
+              "code": "return NULL;"
             }
           },
           {
-            "kind": "PARAM",
-            "symbol": "vmcode",
-            "function": "njs_vmcode_interpreter",
+            "kind": "RETURN",
+            "symbol": "njs_scope_valid_value",
+            "function": "njs_scope_valid_value",
             "location": {
-              "file": "njs_vmcode.c",
-              "line": 124,
-              "code": "vmcode = (njs_vmcode_generic_t *) pc"
-            }
-          },
-          {
-            "kind": "PARAM",
-            "symbol": "pc",
-            "function": "njs_vmcode_interpreter",
-            "location": {
-              "file": "njs_vmcode.c",
-              "line": 83,
-              "code": "u_char *pc"
+              "file": "src/njs_scope.h",
+              "line": 95,
+              "code": "return value;"
             }
           }
         ],
         "last_seen": {
           "function": "njs_vmcode_interpreter",
           "location": {
-            "file": "njs_vmcode.c",
-            "line": 802,
-            "code": "next->index < next->array->length"
+            "file": "src/njs_vmcode.c",
+            "line": 800,
+            "code": "next = value2->data.u.next"
           }
         },
         "next_hints": [
-          "Trace value2 origin: assigned from vmcode->operand1 at line 142",
-          "Check njs_vmcode_operand() call at line 786 which modifies value2 as out-parameter",
-          "Verify if value2->data.u.next can be NULL before dereference at line 800",
-          "Add NULL check guard before line 802 dereference: if (next != NULL)",
-          "Pivot to caller njs_await_fulfilled to trace vmcode->operand1 population"
+          "njs_scope_valid_value() at line 786 can return NULL (line 89 in njs_scope.h)",
+          "value2 assigned at line 786 without NULL check: value2 = njs_scope_valid_value(vm, (njs_index_t)value2)",
+          "No guard/control structure protects dereference of value2 at line 800 (next = value2->data.u.next)",
+          "No guard/control structure protects dereference of next at line 802 (next->array->length)",
+          "Trace path: vm (param) → njs_scope_valid_value(vm, ...) → value2 (may be NULL) → value2->data.u.next → next (may be NULL) → next->array->length (CRASH)"
         ]
       }
     }
@@ -617,14 +391,14 @@
         "version": "1"
       },
       "status": {
-        "result": "complete",
-        "reason": "ok"
+        "result": "partial",
+        "reason": "no_path"
       },
       "sink": {
         "name": "njs_utf8_next",
         "caller_func": "njs_string_offset",
         "callsite": {
-          "file": "src/njs_string.c",
+          "file": null,
           "line": 2545,
           "code": "njs_utf8_next(start, end)"
         },
@@ -633,245 +407,60 @@
           "code": "start"
         },
         "tags": [
-          "PTR",
-          "DEREFERENCE"
+          "INDIRECTION",
+          "POINTER_STRUCT"
         ]
       },
-      "paths": [
-        {
-          "id": "p0",
-          "source": {
+      "paths": [],
+      "preferred_path_id": null,
+      "guards_pending": true,
+      "partial_evidence": {
+        "focus": "value->short_string.start",
+        "suspected_sources": [
+          {
             "kind": "PARAM",
             "symbol": "start",
             "function": "njs_string_offset",
             "location": {
-              "file": "src/njs_string.c",
+              "file": null,
               "line": 2529,
               "code": "const u_char *start"
             }
           },
-          "steps": [
-            {
-              "kind": "ASSIGN",
-              "function": "njs_string_offset",
-              "location": {
-                "file": "src/njs_string.c",
-                "line": 2541,
-                "code": "start += map[index / NJS_STRING_MAP_STRIDE - 1]"
-              },
-              "value_before": "start",
-              "value_after": "start + map[...]"
-            },
-            {
-              "kind": "CALL_ARG_PASS",
-              "function": "njs_string_offset",
-              "location": {
-                "file": "src/njs_string.c",
-                "line": 2545,
-                "code": "njs_utf8_next(start, end)"
-              },
-              "details": {
-                "arg_index": 1,
-                "callee": "njs_utf8_next"
-              }
-            },
-            {
-              "kind": "ARITH",
-              "function": "njs_string_offset",
-              "location": {
-                "file": "src/njs_string.c",
-                "line": 2538,
-                "code": "end - start"
-              },
-              "details": {
-                "operation": "subtraction",
-                "operands": [
-                  "end",
-                  "start"
-                ]
-              }
-            }
-          ],
-          "sink_use": {
-            "function": "njs_string_offset",
-            "location": {
-              "file": "src/njs_string.c",
-              "line": 2545,
-              "code": "njs_utf8_next(start, end)"
-            },
-            "focus_arg_index_1based": 1
-          },
-          "constraints": {
-            "guards_parsed": [],
-            "guards_raw": []
-          },
-          "call_chain": [
-            "njs_string_prototype_last_index_of",
-            "njs_string_offset",
-            "njs_utf8_next"
-          ],
-          "vars_of_interest": [
-            "start",
-            "end",
-            "string",
-            "this",
-            "args"
-          ],
-          "levers": [
-            "control index parameter to njs_string_offset",
-            "manipulate args[0] passed to njs_string_prototype_last_index_of"
-          ]
-        }
-      ],
-      "preferred_path_id": "p0",
-      "guards_pending": true
-    }
-  },
-  {
-    "instance_id": "mruby.cve-2022-1201",
-    "dataflow": {
-      "schema": {
-        "name": "dataflow",
-        "version": "1"
-      },
-      "status": {
-        "result": "partial",
-        "reason": "max_iterations"
-      },
-      "sink": {
-        "name": "<operator>.indirectFieldAccess",
-        "caller_func": "mrb_vm_exec",
-        "callsite": {
-          "file": "vm.c",
-          "line": 1752,
-          "code": "target_class->tt"
-        },
-        "focus": {
-          "arg_index_1based": null,
-          "code": "target_class"
-        },
-        "tags": [
-          "PTR",
-          "DEREFERENCE"
-        ]
-      },
-      "paths": [
-        {
-          "id": "p0",
-          "source": {
-            "kind": "RETURN",
-            "symbol": "ci->u.target_class",
-            "function": "mrb_vm_ci_target_class",
-            "location": {
-              "file": "vm.c",
-              "line": 155,
-              "code": "return ci->u.target_class;"
-            }
-          },
-          "steps": [
-            {
-              "kind": "RETURN",
-              "function": "mrb_vm_ci_target_class",
-              "location": {
-                "file": "vm.c",
-                "line": 155,
-                "code": "return ci->u.target_class;"
-              }
-            },
-            {
-              "kind": "ASSIGN",
-              "function": "mrb_vm_exec",
-              "location": {
-                "file": "vm.c",
-                "line": 1751,
-                "code": "target_class = mrb_vm_ci_target_class(ci)"
-              },
-              "value_before": null,
-              "value_after": "target_class"
-            },
-            {
-              "kind": "FIELD_READ",
-              "function": "mrb_vm_exec",
-              "location": {
-                "file": "vm.c",
-                "line": 1752,
-                "code": "target_class->tt"
-              }
-            }
-          ],
-          "sink_use": {
-            "function": "mrb_vm_exec",
-            "location": {
-              "file": "vm.c",
-              "line": 1752,
-              "code": "if (target_class->tt != MRB_TT_ICLASS)"
-            },
-            "focus_arg_index_1based": null
-          },
-          "constraints": {
-            "guards_parsed": [
-              "ci->u.env && ci->u.env->tt == MRB_TT_ENV"
-            ],
-            "guards_raw": [
-              "if (ci->u.env && ci->u.env->tt == MRB_TT_ENV) { return ci->u.env->c; } else { return ci->u.target_class; }"
-            ]
-          },
-          "lifetime": null,
-          "call_chain": [
-            "mrb_vm_exec",
-            "mrb_vm_ci_target_class"
-          ],
-          "vars_of_interest": [
-            "target_class",
-            "ci",
-            "ci->u.target_class",
-            "ci->u.env"
-          ],
-          "levers": [
-            "null return from mrb_vm_ci_target_class when ci->u.env is NULL or ci->u.env->tt != MRB_TT_ENV",
-            "missing null-check on target_class before dereference at line 1752"
-          ]
-        }
-      ],
-      "preferred_path_id": "p0",
-      "guards_pending": false,
-      "partial_evidence": {
-        "focus": "target_class",
-        "suspected_sources": [
           {
-            "kind": "RETURN",
-            "symbol": "ci->u.target_class",
-            "function": "mrb_vm_ci_target_class",
+            "kind": "FIELD_WRITE",
+            "symbol": "string->start",
+            "function": "njs_string_prop",
             "location": {
-              "file": "vm.c",
-              "line": 155,
-              "code": "return ci->u.target_class;"
+              "file": null,
+              "line": 549,
+              "code": "string->start = (u_char *) value->short_string.start"
             }
           },
           {
-            "kind": "RETURN",
-            "symbol": "ci->u.env->c",
-            "function": "mrb_vm_ci_target_class",
+            "kind": "PARAM",
+            "symbol": "value",
+            "function": "njs_string_prop",
             "location": {
-              "file": "vm.c",
-              "line": 152,
-              "code": "return ci->u.env->c;"
+              "file": null,
+              "line": 541,
+              "code": "const njs_value_t *value"
             }
           }
         ],
         "last_seen": {
-          "function": "mrb_vm_exec",
+          "function": "njs_utf8_next",
           "location": {
-            "file": "vm.c",
-            "line": 1752,
-            "code": "target_class->tt != MRB_TT_ICLASS"
+            "file": null,
+            "line": 52,
+            "code": "c = *p++"
           }
         },
         "next_hints": [
-          "Verify if mrb_vm_ci_target_class can return NULL when ci->u.target_class is NULL",
-          "Check if ci parameter to mrb_vm_exec can be uninitialized or NULL",
-          "Trace ci origin: assignments at lines 1611, 1627, 1644, 1666, 1682, 1699, 1732 show ci is populated from mrb->c->ci or cipush/cipop calls",
-          "Add null-check guard before line 1752 dereference: if (target_class != NULL)"
+          "Trace value parameter origin in njs_string_prototype_last_index_of caller (njs_function_native_call per stack frame #3)",
+          "Verify if value->short_string.start is validated before passing to njs_string_prop",
+          "Check loop condition p < end at line 65 does not guard initial dereference at line 52",
+          "Confirm pointer dereference *p at line 52 lacks bounds check against end parameter"
         ]
       }
     }
