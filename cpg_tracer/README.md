@@ -134,3 +134,10 @@ python -m cpg_tracer.llmxcpg_ported.generate_and_run_queries --help
 ### 输出轨迹说明
 
 `<instance_id>.json` 中的 `steps`、`conversation` 字段记录了每一次 LLM query、Joern 执行状态、stdout/stderr，可用于追溯错误或调整 prompt。`paths`、`contexts` 则是成功的 Source→Sink 链路，给之后的 PoC 设计提供约束信息。
+
+### 提示 / 反馈机制
+
+- 每个实例的 `<SINK_CONTEXT>` 后会追加 `<ANALYSIS_HINTS>` 段，包含 instance_id、sanitizer 关键字、元数据里的基础信息等，帮助 LLM 粗略判断指针 / 越界 / UAF 模式。
+- 只要 LLM 运行 `.reachableBy*`，就会设置 `expect_paths=true`，驱动器改用 `run_reachable_query()` 并把解析出的路径写入 `paths`，同时在反馈中附带 `PATH_RESULT`/`PATHS_PREVIEW`。
+- 若 Joern 返回语法错误或空路径，反馈里会出现 `ERROR_INFO`、`VALIDATOR_HINT: reachable_query_returned_no_paths` 等提示，LLM 必须据此调整下一步查询而不是重复错误。
+- `payload.intent` 现在包含 `BUG_FAMILY`、`SINK_KIND`、`SOURCE_KINDS`、`PLAN` 等字段，下游 summary / PoC agent 可以直接解析这些 CoT 结果。

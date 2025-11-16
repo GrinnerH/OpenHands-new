@@ -322,6 +322,52 @@ def _build_sink_context_block(source_root: Path, report: str) -> str:
     return "\n".join(block_lines)
 
 
+_SANITIZER_KEYWORDS = [
+    "heap-use-after-free",
+    "stack-use-after-free",
+    "heap-buffer-overflow",
+    "stack-buffer-overflow",
+    "global-buffer-overflow",
+    "null pointer",
+    "segv",
+]
+
+
+def _build_analysis_hints_block(args: argparse.Namespace, report: str) -> str:
+    lines = ["<ANALYSIS_HINTS>"]
+    instance_id = args.instance_id or "<unknown>"
+    lines.append(f"instance_id: {instance_id}")
+
+    lowered_report = report.lower()
+    found_keywords = sorted({kw for kw in _SANITIZER_KEYWORDS if kw in lowered_report})
+    if found_keywords:
+        lines.append("sanitizer_keywords: " + ", ".join(found_keywords))
+    else:
+        lines.append("sanitizer_keywords: <none>")
+
+    metadata_notes: List[str] = []
+    try:
+        meta = _get_instance_metadata(args)
+    except Exception:
+        meta = None
+    if meta:
+        entries = [
+            ("project", meta.get("project_name")),
+            ("repo", meta.get("repo")),
+            ("base_commit", meta.get("base_commit")),
+            ("language", meta.get("lang") or meta.get("language")),
+        ]
+        for label, value in entries:
+            if isinstance(value, str) and value.strip():
+                metadata_notes.append(f"{label}={value.strip()}")
+    if metadata_notes:
+        lines.append("metadata: " + "; ".join(metadata_notes))
+    else:
+        lines.append("metadata: <unavailable>")
+    lines.append("</ANALYSIS_HINTS>")
+    return "\n".join(lines)
+
+
 DEFAULT_CHAT_COMPLETIONS_PATH = "/chat/completions"
 DEFAULT_CHAT_COMPLETION_TIMEOUT = 120
 
@@ -836,6 +882,7 @@ def run_session(args: argparse.Namespace, cfg: Dict[str, Any], sanitizer_report:
     )
 
     sink_block = _build_sink_context_block(host_source, sanitizer_report)
+    analysis_block = _build_analysis_hints_block(args, sanitizer_report)
 
     sink_context = textwrap.dedent(
 f"""\
@@ -844,6 +891,8 @@ f"""\
 <SANITIZER_REPORT>
 {sanitizer_report.strip()}
 </SANITIZER_REPORT>
+
+{analysis_block}
 
 <TASK INSTRUCTIONS>
 Follow the **reordered 6-step pipeline** with hard Gates (S1→S6). One JSON per turn.
@@ -871,8 +920,15 @@ If guards are found, set `guards_pending=false` and list them in `path_condition
 
 First reply must be PLAN_ONLY (no Joern code):
 - Output exactly one JSON with `"query": "PLAN_ONLY"`.
-- In "intent": restate the sink metadata you inferred from the sanitizer report (function from stack frame #0, source file + line, crashing arg index if present; if missing, use `-1`). Plan to compute `ARG_IDX_1BASED=ARG_IDX_0BASED+1` but LOCK only after S1 prints args; describe how you will anchor (caller+line if known; else enumerate and verify) and outline the plan S1→S2→S3→S4→S5→S6 with ≤14 steps (Delta rule).
-- Keep a small step budget; if two consecutive steps add no new evidence, change strategy (run S4 or pivot S5).
+- In "intent": include the reasoning fields required by the SYSTEM_PROMPT
+  (`BUG_FAMILY`, `SINK_KIND`, `SOURCE_KINDS`, `PLAN`, and optionally `pivot_reason`,
+  `path_conditions`), and restate the sink metadata you inferred from the sanitizer report
+  (function from stack frame #0, source file + line, crashing arg index if present; if missing,
+  use `-1`). Plan to compute `ARG_IDX_1BASED=ARG_IDX_0BASED+1` but LOCK only after S1 prints args;
+  describe how you will anchor (caller+line if known; else enumerate and verify) and outline the
+  plan S1→S2→S3→S4→S5→S6 with ≤14 steps (Delta rule).
+- Keep a small step budget; if two consecutive steps add no new evidence, change strategy
+  (run S4 or pivot S5).
 
 Stopping rule — You may set `"stop": true` once a concrete **Source → … → Sink(FOCUS)** data-flow path is printed. Include any guards found; if none, use `path_conditions=[]` and `guards_pending=true`.
 
@@ -903,14 +959,24 @@ No extra prose outside JSON; escape quotes; if imports/helpers are needed, inclu
         status = QueryStatus.ERROR
         stdout = ""
         flows: List[List[Dict[str, Any]]] = []
+        validator_hint = ""
+        path_result = ""
 
         plan_only = query.strip().upper() == "PLAN_ONLY"
         if plan_only:
             status = QueryStatus.SUCCESS
             stdout = "PLAN_ONLY acknowledged; no Joern query executed."
         else:
-            status, stdout = manager.execute(query)
-            flows = []
+            if expect_paths:
+                status, flows, stdout = manager.run_reachable_query(query)
+                if status == QueryStatus.SUCCESS and flows:
+                    collected_paths.extend(flows)
+                    path_result = "success"
+                else:
+                    path_result = "empty"
+            else:
+                status, stdout = manager.execute(query)
+                flows = []
 
         full_stdout = stdout.rstrip() or "<empty>"
         summary_lines = [
@@ -919,8 +985,19 @@ No extra prose outside JSON; escape quotes; if imports/helpers are needed, inclu
             "STDOUT_FULL:",
             full_stdout,
         ]
+        if path_result:
+            summary_lines.append(f"PATH_RESULT: {path_result}")
         if flows:
             summary_lines.append("PATHS_PREVIEW:\n" + format_paths(flows[:2]))
+        if status == QueryStatus.ERROR:
+            summary_lines.append("ERROR_INFO: " + summarize_stdout(stdout))
+            validator_hint = validator_hint or "error_in_query_syntax_or_runtime"
+        elif status == QueryStatus.EMPTY and expect_paths:
+            validator_hint = "reachable_query_returned_no_paths"
+        elif status == QueryStatus.EMPTY:
+            validator_hint = "query_returned_empty"
+        if validator_hint:
+            summary_lines.append(f"VALIDATOR_HINT: {validator_hint}")
         steps_log.append(
             {
                 "iteration": iterations,
@@ -938,8 +1015,10 @@ No extra prose outside JSON; escape quotes; if imports/helpers are needed, inclu
             break
 
     contexts: List[Dict[str, Any]] = []
-    collected_paths = []
     summary_text = ""
+    if collected_paths:
+        contexts = build_contexts(collected_paths, repo_root)
+        summary_text = build_path_summary(collected_paths, contexts)
 
     for ctx in contexts:
         lines = ", ".join(str(num) for num in ctx.get("lines", []))

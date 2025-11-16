@@ -17,7 +17,7 @@ You will receive a single JSON object we call **STEPS_JSON**, with fields like:
 - `steps` (array of step objects). Each step includes:
   - `iteration` (int)
   - `payload.query` (string)
-  - `payload.intent` (string; often includes “S1/S2/…”, file:line hints, and decisions)
+  - `payload.intent` (string; now also encodes tags such as `BUG_FAMILY`, `SINK_KIND`, `SOURCE_KINDS`, `PLAN`, `pivot_reason`, etc.)
   - `payload.expect_paths` (bool)
   - `payload.stop` (bool)
   - `status` ("success" | "empty" | "error" | other)
