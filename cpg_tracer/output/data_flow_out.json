@@ -1,6 +1,6 @@
 [
   {
-    "instance_id": "njs.cve-2021-46462",
+    "instance_id": "30-njs.cve-2021-46462",
     "dataflow": {
       "schema": {
         "name": "dataflow",
@@ -554,6 +554,197 @@
           "Confirm whether 'end' parameter validation is missing before njs_utf8_next call at line 2545"
         ]
       }
+    }
+  },
+  {
+    "instance_id": "njs.cve-2021-46462",
+    "dataflow": {
+      "schema": {
+        "name": "dataflow",
+        "version": "1"
+      },
+      "status": {
+        "result": "complete",
+        "reason": "ok"
+      },
+      "sink": {
+        "name": "<operator>.indirectFieldAccess",
+        "caller_func": "njs_object_set_prototype",
+        "callsite": {
+          "file": "src/njs_object.c",
+          "line": 2136,
+          "code": "proto->__proto__"
+        },
+        "focus": {
+          "arg_index_1based": 1,
+          "code": "proto"
+        },
+        "tags": [
+          "POINTER_STRUCT",
+          "FIELD_ACCESS",
+          "SEGV_READ"
+        ]
+      },
+      "paths": [
+        {
+          "id": "p0",
+          "source": {
+            "kind": "PARAM",
+            "symbol": "value",
+            "function": "njs_object_set_prototype",
+            "location": {
+              "file": "src/njs_object.c",
+              "line": 2112,
+              "code": "const njs_value_t *value"
+            }
+          },
+          "steps": [
+            {
+              "kind": "CALL_ARG_PASS",
+              "function": "njs_object_set_prototype",
+              "location": {
+                "file": "src/njs_object.c",
+                "line": 2116,
+                "code": "njs_object(value)"
+              },
+              "value_before": "value",
+              "value_after": "njs_object(value)",
+              "details": {
+                "callee": "njs_object",
+                "arg_index": 1
+              }
+            },
+            {
+              "kind": "ASSIGN",
+              "function": "njs_object_set_prototype",
+              "location": {
+                "file": "src/njs_object.c",
+                "line": 2116,
+                "code": "proto = njs_object(value)"
+              },
+              "value_before": "njs_object(value)",
+              "value_after": "proto",
+              "details": {
+                "lhs": "proto",
+                "rhs": "njs_object(value)"
+              }
+            },
+            {
+              "kind": "FIELD_READ",
+              "function": "njs_object_set_prototype",
+              "location": {
+                "file": "src/njs_object.c",
+                "line": 2118,
+                "code": "object->__proto__ == proto"
+              },
+              "value_before": "proto",
+              "value_after": "proto",
+              "details": {
+                "comparison": true
+              }
+            },
+            {
+              "kind": "FIELD_READ",
+              "function": "njs_object_set_prototype",
+              "location": {
+                "file": "src/njs_object.c",
+                "line": 2126,
+                "code": "proto == NULL"
+              },
+              "value_before": "proto",
+              "value_after": "proto",
+              "details": {
+                "null_check": true
+              }
+            },
+            {
+              "kind": "FIELD_READ",
+              "function": "njs_object_set_prototype",
+              "location": {
+                "file": "src/njs_object.c",
+                "line": 2132,
+                "code": "proto == object"
+              },
+              "value_before": "proto",
+              "value_after": "proto",
+              "details": {
+                "comparison": true
+              }
+            },
+            {
+              "kind": "FIELD_WRITE",
+              "function": "njs_object_set_prototype",
+              "location": {
+                "file": "src/njs_object.c",
+                "line": 2136,
+                "code": "proto = proto->__proto__"
+              },
+              "value_before": "proto",
+              "value_after": "proto->__proto__",
+              "details": {
+                "loop_reassignment": true,
+                "field": "__proto__"
+              }
+            },
+            {
+              "kind": "FIELD_READ",
+              "function": "njs_object_set_prototype",
+              "location": {
+                "file": "src/njs_object.c",
+                "line": 2136,
+                "code": "proto->__proto__"
+              },
+              "value_before": "proto",
+              "value_after": "proto->__proto__",
+              "details": {
+                "crash_site": true,
+                "operator": "indirectFieldAccess"
+              }
+            }
+          ],
+          "sink_use": {
+            "function": "njs_object_set_prototype",
+            "location": {
+              "file": "src/njs_object.c",
+              "line": 2136,
+              "code": "proto->__proto__"
+            },
+            "focus_arg_index_1based": 1
+          },
+          "constraints": {
+            "guards_parsed": [
+              "proto != NULL",
+              "proto == object",
+              "njs_slow_path(proto == NULL)",
+              "!object->extensible",
+              "njs_slow_path(object->__proto__ == proto)"
+            ],
+            "guards_raw": [
+              "while(proto != NULL)",
+              "if (proto == object)",
+              "if (njs_slow_path(proto == NULL))",
+              "if (!object->extensible)",
+              "if (njs_slow_path(object->__proto__ == proto))"
+            ]
+          },
+          "call_chain": [
+            "njs_object_set_prototype",
+            "njs_object"
+          ],
+          "vars_of_interest": [
+            "value",
+            "proto",
+            "object"
+          ],
+          "levers": [
+            "craft value parameter with circular __proto__ chain",
+            "trigger infinite loop or invalid pointer dereference",
+            "bypass NULL check via loop condition"
+          ]
+        }
+      ],
+      "preferred_path_id": "p0",
+      "guards_pending": false
     }
   }
 ]

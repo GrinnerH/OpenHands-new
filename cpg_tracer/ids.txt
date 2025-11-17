@@ -1,7 +1,5 @@
-njs.cve-2021-46462
-njs.cve-2022-29369
-njs.cve-2022-29779
-njs.cve-2022-32414
+liblouis.cve-2023-26768
+libredwg.cve-2022-45332
+imagemagick.cve-2019-13303
 njs.cve-2022-38890
-imagemagick.cve-2021-3962
-mruby.cve-2022-1201
+gpac.cve-2023-0760

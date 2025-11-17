@@ -1105,7 +1105,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Language hint for importCode (e.g., c, cpp, jssrc). Default: c",
     )
     # Sink metadata now derived directly from sanitizer report inside prompts
-    parser.add_argument("--compose-file", default="docker-compose.yml")
+    parser.add_argument("--compose-file", default="cpg_tracer/docker-compose.yml")
     parser.add_argument("--config", default="config.toml")
     parser.add_argument("--llm-profile", default=None)
     parser.add_argument("--joern-port", type=int, default=16240)

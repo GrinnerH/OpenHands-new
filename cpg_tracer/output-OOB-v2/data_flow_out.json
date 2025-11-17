@@ -1,0 +1,84 @@
+[
+  {
+    "instance_id": "libredwg.cve-2022-45332",
+    "dataflow": {
+      "schema": {
+        "name": "dataflow",
+        "version": "1"
+      },
+      "status": {
+        "result": "partial",
+        "reason": "max_iterations"
+      },
+      "sink": {
+        "name": "strncpy",
+        "caller_func": "decode_preR13_section_hdr",
+        "callsite": {
+          "file": "src/decode_r11.c",
+          "line": 139,
+          "code": "strncpy (tbl->name, name, sizeof(tbl->name) - 1)"
+        },
+        "focus": {
+          "arg_index_1based": 3,
+          "code": "sizeof(tbl->name) - 1"
+        },
+        "tags": [
+          "SIZE",
+          "OOB_WRITE"
+        ]
+      },
+      "paths": [],
+      "guards_pending": true,
+      "partial_evidence": {
+        "focus": "sizeof(tbl->name) - 1",
+        "suspected_sources": [
+          {
+            "kind": "PARAM",
+            "symbol": "name",
+            "function": "decode_preR13_section_hdr",
+            "location": {
+              "file": "src/decode_r11.c",
+              "line": 126,
+              "code": "const char *restrict name"
+            }
+          },
+          {
+            "kind": "PARAM",
+            "symbol": "id",
+            "function": "decode_preR13_section_hdr",
+            "location": {
+              "file": "src/decode_r11.c",
+              "line": 126,
+              "code": "Dwg_Section_Type_r11 id"
+            }
+          },
+          {
+            "kind": "FIELD_WRITE",
+            "symbol": "tbl->name",
+            "function": "decode_preR13_section_hdr",
+            "location": {
+              "file": "src/decode_r11.c",
+              "line": 139,
+              "code": "strncpy (tbl->name, name, sizeof(tbl->name) - 1)"
+            }
+          }
+        ],
+        "last_seen": {
+          "function": "decode_preR13_section_hdr",
+          "location": {
+            "file": "src/decode_r11.c",
+            "line": 139,
+            "code": "strncpy (tbl->name, name, sizeof(tbl->name) - 1)"
+          }
+        },
+        "next_hints": [
+          "Pivot to caller decode_preR13 (frame #2 at line 762) to trace how tbl->name buffer is allocated",
+          "Examine Dwg_Section struct definition to confirm tbl->name field size (appears to be 64 bytes based on tbl->name[63] = '\\0')",
+          "Trace parameter 'name' backward to find attacker-controlled input from DWG file parsing",
+          "Check if sizeof(tbl->name) is correctly computed; crash hypothesis suggests buffer capacity mismatch",
+          "Analyze bit_read_* calls (bit_read_RS, bit_read_RL) to identify parsed length sources"
+        ]
+      }
+    }
+  }
+]
