@@ -211,27 +211,35 @@ import io.shiftleft.semanticcpg.language._
 import io.joern.dataflowengineoss.language._
 ```
 
-### 4.1 Source Selection Principles (OOB-specific)
+### 4.1 Source Selection Principles (OOB-specific, STRICT)
 
 * **NEVER** choose a pure literal (e.g., `0`, `1`) as a primary taint source.
   For helper calls like `njs_argument(args, 0)`, the attacker controls the **`args` / `value`**, not the constant index.
-* Prefer sources in this order:
+* **NEVER** use **helper / guard function calls** themselves as taint sources, e.g.:
+  `GetPixelChannels(image)`, `GetWidth(img)`, `GetHeight(img)`, `vector_length(v)`.
+  These are typically used only in **loop bounds or conditions** and should be handled in **S6 (guards)**,
+  not as `.reachableByFlows` sources.
+* Valid sources must be one of the following three categories (the “carriers” of index/size/pointer information):
 
-  1. **Function parameters** whose values or derived locals feed into the FOCUS index/size expression.
-  2. **Locals** and **struct fields** assigned from parameters or external inputs
-     (e.g., `iargs.from = from`, `state->index = i`, `ctx->len = length`).
-  3. **Results of length/size/parse functions** applied to attacker-controlled inputs
-     (e.g., `njs_value_length(vm, value, &length)`, `read_count`, `num_objects`).
+  1. **Function parameters** whose values (or derived locals) flow into the FOCUS index/size/pointer expression.
+  2. **Locals and struct fields** that are assigned from parameters or external inputs, e.g.
+     `iargs.from = from`, `state->index = i`, `ctx->len = length`, `ctx->buf = buf`.
+  3. **Outputs of length/size/parse functions** stored in parameters / out-params / locals / fields
+     (e.g., `length`, `count`, `num_objects`).
+     The **variable** that holds the result is the source, **not** the call node itself.
 
-After S2/S3/S5 you will typically know a small set of candidate parameters/locals/fields.
-Use **one of the three macros below** to validate data-flow from these sources to the FOCUS.
+After S2/S3/S5 you should have a small set of candidate parameter / local / field names.
+Use **one** of the macros below to validate data-flow from these sources to the FOCUS.
 
 ---
 
-### 4.2 Macro A — Intra-procedural: FOCUS index/size ← parameter (same function)
+### 4.2 Macro A — Intra-procedural: FOCUS index/size/pointer ← parameter (same function)
 
-Use when the OOB-relevant index/size in `<CALLER_FUNC>` (or `<FUNC>`) is derived from a parameter,
-e.g., `len` in `memcpy(buf, src, len)` or `count` in a loop.
+Use when the OOB-relevant index/size/pointer in `<FUNC>` is derived from a parameter, e.g.:
+
+* `len` in `memcpy(buf, src, len)`
+* `count` in `for (i = 0; i < count; i++)`
+* `ptr` in `use(ptr)` for pointer-centric OOB.
 
 ```scala
 import io.shiftleft.semanticcpg.language._
@@ -240,20 +248,20 @@ import io.joern.dataflowengineoss.language._
 cpg.method.nameExact("<FUNC>")
   .call.nameExact("<SINK_NAME>")
   .filter(_.lineNumber.exists(_ == <CALLSITE_LINE>))
-  .argument(<ARG_IDX_1BASED>)                // index / size / length argument
+  .argument(<ARG_IDX_1BASED>)                // index / size / length / pointer argument
   .reachableByFlows(
     cpg.method.nameExact("<FUNC>")
       .parameter
-      .where(_.nameExact("<PARAM_NAME>"))    // e.g., "len", "count"
+      .nameExact("<PARAM_NAME>")             // e.g., "len", "count", "ptr"
   ).p
 ```
 
 ---
 
-### 4.3 Macro B — Intra-procedural: FOCUS index/size ← local/assignment (same function)
+### 4.3 Macro B — Intra-procedural: FOCUS index/size/pointer ← local/assignment (same function)
 
-Use when the OOB FOCUS is a local or composite index/size variable (e.g., `idx`, `pos`, `y * stride + x`),
-and you have identified a representative local name `<IDX_OR_SIZE_VAR>`.
+Use when the OOB FOCUS is a local or composite expression (e.g., `idx`, `pos`, `offset`, `y * stride + x`, `p`),
+and you have identified a representative variable name `<IDX_OR_SIZE_OR_PTR>`.
 
 ```scala
 import io.shiftleft.semanticcpg.language._
@@ -262,57 +270,86 @@ import io.joern.dataflowengineoss.language._
 cpg.method.nameExact("<FUNC>")
   .call.nameExact("<SINK_NAME>")
   .filter(_.lineNumber.exists(_ == <CALLSITE_LINE>))
-  .argument(<ARG_IDX_1BASED>)                      // index / size / length argument
+  .argument(<ARG_IDX_1BASED>)                      // index / size / length / pointer argument
   .reachableByFlows(
-    cpg.method.nameExact("<FUNC>").local.nameExact("<IDX_OR_SIZE_VAR>")
+    cpg.method.nameExact("<FUNC>").local
+      .nameExact("<IDX_OR_SIZE_OR_PTR>")
       .or(
-        cpg.method.nameExact("<FUNC>").assignment
-          .where(_.target.isIdentifier.nameExact("<IDX_OR_SIZE_VAR>"))
+        cpg.method.nameExact("<FUNC>").identifier
+          .nameExact("<IDX_OR_SIZE_OR_PTR>")
       )
   ).p
 ```
 
-This covers both the local declaration and assignments updating it.
+This covers both the local declaration and its uses/updates via identifiers.
+Typical names: `idx`, `i`, `offset`, `pos`, `p`.
 
 ---
 
 ### 4.4 Macro C — Inter-procedural “OOB Golden Bridge”: callee FOCUS ← caller struct-field assignment
 
-Use when the OOB sink is inside `<CALLEE>` and the index/size comes from a struct field or context object
-that is populated in `<CALLER>`, e.g., `state->index`, `ctx->from`, `it->len`.
+Use when the OOB sink is inside `<CALLEE>` and the index/size/pointer comes from a struct/context field
+populated in `<CALLER>`, e.g. `state->index`, `ctx->from`, `ctx->len`, `ctx->buf`.
 
 ```scala
 import io.shiftleft.semanticcpg.language._
 import io.joern.dataflowengineoss.language._
 
-// Sink: index/size argument in the callee where the OOB occurs
+// Sink: index/size/pointer argument in the callee where the OOB occurs
 cpg.method.nameExact("<CALLEE>")
   .call.nameExact("<SINK_NAME>")
   .filter(_.lineNumber.exists(_ == <CALLSITE_LINE>))
-  .argument(<ARG_IDX_1BASED>)                          // index / size argument in callee
+  .argument(<ARG_IDX_1BASED>)                          // index / size / pointer argument in callee
   .reachableByFlows(
     // Source: assignments in the caller that write the relevant field
     cpg.method.nameExact("<CALLER>")
       .assignment
-      .where(_.target.isIdentifier)                    // or isFieldIdentifier if you know it
-      .filter(_.code.contains("<FIELD_NAME>"))         // e.g., "state->index", "ctx->from"
+      .filter(_.code.contains("<FIELD_NAME>"))         // e.g., "state->index", "ctx->from", "ctx->buf"
   ).p
 ```
 
-Use this macro after S5 pivot has identified `<CALLER>` and the relevant struct field.
+Use this macro **after S5** has identified the correct `<CALLER>` and `<FIELD_NAME>`.
 
 ---
 
-**Gate pass (S4)**: at least one **data-flow path** printed with FOCUS as the **sink**.
-This step’s JSON must set `"expect_paths": true` and briefly summarize the path(s) in `"intent"`.
+### 4.5 When paths are empty (graceful fallback)
 
-If no path is found:
+**Gate pass (S4)**:
+The gate passes only if at least one **data-flow path** is printed with the FOCUS as the **sink**.
+For this step, the JSON **must** set `"expect_paths": true` and briefly summarize the key path(s) in `"intent"`.
 
-* Slightly broaden the source set (e.g., include both parameter and its derived local),
-  still using the macros above.
-* If still empty after one broadening → go to **S5 Pivot**.
+If using Macro A/B/C yields no paths:
+
+1. **Allow exactly one controlled broadening of the source set**, still within the param/local/field universe, e.g.:
+
+   ```scala
+   cpg.method.nameExact("<FUNC>")
+     .call.nameExact("<SINK_NAME>")
+     .filter(_.lineNumber.exists(_ == <CALLSITE_LINE>))
+     .argument(<ARG_IDX_1BASED>)
+     .reachableByFlows(
+       cpg.method.nameExact("<FUNC>").parameter.nameExact("<PARAM_NAME>")
+         .or(
+           cpg.method.nameExact("<FUNC>").local.nameExact("<LOCAL_DERIVED>")
+         )
+     ).p
+   ```
+
+   or by including two closely related fields of the same struct (e.g., `ctx->len` and `ctx->buf`).
+
+2. If paths are **still empty** after this single broadening:
+
+   * **Do not** start adding helper/guard calls (e.g., `GetPixelChannels(image)`) as sources.
+   * In `"intent"`, explicitly record something like:
+     `"new_evidence": "no_direct_ddg_path; falling back to param/local/field summary and guards only"`.
+   * Populate `suspected_sources` with the best param/local/field candidates you have,
+     and defer the semantics of helper/guard functions to **S6 (path_conditions)**.
+
+If cross-function exploration is needed, follow S5 to pivot exactly one frame, and then re-apply Macro A/B/C in the new context.
+Even after pivoting, **sources must remain param/local/field nodes** — never the call node of a helper/guard function.
 
 ---
+
 
 ## S5 — Interprocedural pivot (Pivot Gate; one frame at a time)
 

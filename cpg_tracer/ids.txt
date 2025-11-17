@@ -1,2 +1,4 @@
-liblouis.cve-2023-26768
+libredwg.cve-2022-45332
+imagemagick.cve-2019-13303
+njs.cve-2022-38890
 gpac.cve-2023-0760

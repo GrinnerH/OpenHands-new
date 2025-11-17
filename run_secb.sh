@@ -7,6 +7,7 @@ num_instances=200
 max_iterations=75
 label="eval"
 num_workers=1
+dataflow_json=""
 
 # Usage function
 usage() {
@@ -21,6 +22,7 @@ usage() {
     echo "  -i, --iterations NUM      Maximum iterations (default: 75)"
     echo "  -t, --label LABEL         Label for the run (default: eval)"
     echo "  -w, --workers NUM         Number of workers (default: 1)"
+    echo "  -d, --dataflow-json PATH  Path to data_flow_out.json (default: cpg_tracer/output/data_flow_out.json)"
     echo "  -h, --help                Show this help message"
     echo ""
     echo "Examples:"
@@ -55,6 +57,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -w|--workers)
             num_workers="$2"
+            shift 2
+            ;;
+        -d|--dataflow-json)
+            dataflow_json="$2"
             shift 2
             ;;
         -h|--help)
@@ -104,7 +110,16 @@ echo "  Number of instances: $num_instances"
 echo "  Max iterations: $max_iterations"
 echo "  Label: $label"
 echo "  Number of workers: $num_workers"
+if [ -n "$dataflow_json" ]; then
+    echo "  Dataflow JSON: $dataflow_json"
+else
+    echo "  Dataflow JSON: cpg_tracer/output/data_flow_out.json"
+fi
 echo "----------------------------------------"
+
+if [ -n "$dataflow_json" ]; then
+    export DATAFLOW_JSON="$dataflow_json"
+fi
 
 # Execute based on the mode
 case "$mode" in
