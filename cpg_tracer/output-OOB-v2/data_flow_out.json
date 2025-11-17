@@ -80,5 +80,355 @@
         ]
       }
     }
+  },
+  {
+    "instance_id": "imagemagick.cve-2019-13303",
+    "dataflow": {
+      "schema": {
+        "name": "dataflow",
+        "version": "1"
+      },
+      "status": {
+        "result": "partial",
+        "reason": "no_path"
+      },
+      "sink": {
+        "name": "SetPixelChannel",
+        "caller_func": "CompositeImage",
+        "callsite": {
+          "file": "MagickCore/composite.c",
+          "line": 666,
+          "code": "SetPixelChannel(image,channel,p[i],q)"
+        },
+        "focus": {
+          "arg_index_1based": 3,
+          "code": "p[i]"
+        },
+        "tags": [
+          "INDEX",
+          "ARRAY_ACCESS",
+          "HEAP_BUFFER_OVERFLOW_READ"
+        ]
+      },
+      "paths": [],
+      "guards_pending": true,
+      "partial_evidence": {
+        "focus": "p[i]",
+        "suspected_sources": [
+          {
+            "kind": "PARAM",
+            "symbol": "i",
+            "function": "CompositeImage",
+            "location": {
+              "file": "MagickCore/composite.c",
+              "line": 657,
+              "code": "i=0"
+            }
+          },
+          {
+            "kind": "RETURN",
+            "symbol": "GetPixelChannels",
+            "function": "CompositeImage",
+            "location": {
+              "file": "MagickCore/composite.c",
+              "line": 657,
+              "code": "GetPixelChannels(image)"
+            }
+          },
+          {
+            "kind": "RETURN",
+            "symbol": "GetCacheViewVirtualPixels",
+            "function": "CompositeImage",
+            "location": {
+              "file": "MagickCore/composite.c",
+              "line": 637,
+              "code": "GetCacheViewVirtualPixels(source_view,0,y,source_image->columns,1,exception)"
+            }
+          },
+          {
+            "kind": "UNKNOWN",
+            "symbol": "p",
+            "function": "CompositeImage",
+            "location": {
+              "file": "MagickCore/composite.c",
+              "line": 637,
+              "code": "p=GetCacheViewVirtualPixels(...)"
+            }
+          }
+        ],
+        "last_seen": {
+          "function": "CompositeImage",
+          "location": {
+            "file": "MagickCore/composite.c",
+            "line": 666,
+            "code": "SetPixelChannel(image,channel,p[i],q)"
+          }
+        },
+        "next_hints": [
+          "Trace loop bound: GetPixelChannels(image) at line 657 controls loop counter i (0 to bound-1)",
+          "Trace buffer allocation: GetCacheViewVirtualPixels at line 637 allocates p with size based on source_image->columns and 1 row",
+          "Identify mismatch: GetPixelChannels(image) may exceed actual channels allocated in p, causing OOB READ at p[i]",
+          "Check if GetPixelChannels(image) != GetPixelChannels(source_image) or if buffer p is undersized",
+          "Pivot into GetPixelChannels function to see how channel count is computed from image metadata"
+        ]
+      }
+    }
+  },
+  {
+    "instance_id": "njs.cve-2022-38890",
+    "dataflow": {
+      "schema": {
+        "name": "dataflow",
+        "version": "1"
+      },
+      "status": {
+        "result": "complete",
+        "reason": "ok"
+      },
+      "sink": {
+        "name": "njs_utf8_next",
+        "caller_func": "njs_string_offset",
+        "callsite": {
+          "file": "src/njs_string.c",
+          "line": 2545,
+          "code": "njs_utf8_next(start, end)"
+        },
+        "focus": {
+          "arg_index_1based": 1,
+          "code": "start"
+        },
+        "tags": [
+          "POINTER_DEREFERENCE",
+          "OUT_OF_BOUNDS_READ"
+        ]
+      },
+      "paths": [
+        {
+          "id": "p0",
+          "source": {
+            "kind": "PARAM",
+            "symbol": "start",
+            "function": "njs_string_offset",
+            "location": {
+              "file": "src/njs_string.c",
+              "line": 2529,
+              "code": "const u_char *start"
+            }
+          },
+          "steps": [
+            {
+              "kind": "ASSIGN",
+              "function": "njs_string_offset",
+              "location": {
+                "file": "src/njs_string.c",
+                "line": 2541,
+                "code": "start += map[index / NJS_STRING_MAP_STRIDE - 1]"
+              },
+              "value_before": "start (parameter)",
+              "value_after": "start + map[index / NJS_STRING_MAP_STRIDE - 1]"
+            },
+            {
+              "kind": "CALL_ARG_PASS",
+              "function": "njs_string_offset",
+              "location": {
+                "file": "src/njs_string.c",
+                "line": 2545,
+                "code": "njs_utf8_next(start, end)"
+              },
+              "details": {
+                "arg_index": 1,
+                "callee": "njs_utf8_next"
+              }
+            },
+            {
+              "kind": "ASSIGN",
+              "function": "njs_utf8_next",
+              "location": {
+                "file": "src/njs_utf8.h",
+                "line": 52,
+                "code": "p++"
+              },
+              "value_before": "p",
+              "value_after": "p + 1"
+            },
+            {
+              "kind": "ASSIGN",
+              "function": "njs_utf8_next",
+              "location": {
+                "file": "src/njs_utf8.h",
+                "line": 54,
+                "code": "*p"
+              },
+              "details": {
+                "vulnerability": "pointer dereference without bounds check after increment"
+              }
+            }
+          ],
+          "sink_use": {
+            "function": "njs_string_offset",
+            "location": {
+              "file": "src/njs_string.c",
+              "line": 2545,
+              "code": "start = njs_utf8_next(start, end)"
+            },
+            "focus_arg_index_1based": 1
+          },
+          "constraints": {
+            "guards_parsed": [
+              "index >= NJS_STRING_MAP_STRIDE",
+              "map[0] == 0",
+              "skip != 0"
+            ],
+            "guards_raw": [
+              "if (index >= NJS_STRING_MAP_STRIDE)",
+              "if (map[0] == 0)",
+              "for (skip = index % NJS_STRING_MAP_STRIDE; skip != 0; skip--)"
+            ]
+          },
+          "call_chain": [
+            "njs_string_prototype_last_index_of",
+            "njs_string_offset",
+            "njs_utf8_next"
+          ],
+          "vars_of_interest": [
+            "start",
+            "end",
+            "index",
+            "map",
+            "skip"
+          ],
+          "levers": [
+            "user-controlled index parameter from njs_string_prototype_last_index_of",
+            "malformed UTF-8 sequence causing p++ to advance past end",
+            "insufficient bounds validation in njs_string_offset before map array access"
+          ]
+        }
+      ],
+      "preferred_path_id": "p0",
+      "guards_pending": false,
+      "partial_evidence": null
+    }
+  },
+  {
+    "instance_id": "gpac.cve-2023-0760",
+    "dataflow": {
+      "schema": {
+        "name": "dataflow",
+        "version": "1"
+      },
+      "status": {
+        "result": "complete",
+        "reason": "ok"
+      },
+      "sink": {
+        "name": "<operator>.indirectFieldAccess",
+        "caller_func": "gf_isom_box_size",
+        "callsite": {
+          "file": "src/isomedia/box_funcs.c",
+          "line": 1997,
+          "code": "a->registry->disabled"
+        },
+        "focus": {
+          "arg_index_1based": 1,
+          "code": "a->registry"
+        },
+        "tags": [
+          "HEAP_BUFFER_OVERFLOW",
+          "READ",
+          "DEREFERENCE"
+        ]
+      },
+      "paths": [
+        {
+          "id": "p0",
+          "source": {
+            "kind": "PARAM",
+            "symbol": "a",
+            "function": "gf_isom_box_size",
+            "location": {
+              "file": "src/isomedia/box_funcs.c",
+              "line": 1993,
+              "code": "GF_Box *a"
+            }
+          },
+          "steps": [
+            {
+              "kind": "FIELD_READ",
+              "function": "gf_isom_box_size",
+              "location": {
+                "file": "src/isomedia/box_funcs.c",
+                "line": 1996,
+                "code": "!a"
+              },
+              "value_before": "a",
+              "value_after": "a",
+              "details": {
+                "context": "NULL check condition"
+              }
+            },
+            {
+              "kind": "FIELD_READ",
+              "function": "gf_isom_box_size",
+              "location": {
+                "file": "src/isomedia/box_funcs.c",
+                "line": 1997,
+                "code": "a->registry"
+              },
+              "value_before": "a",
+              "value_after": "a->registry",
+              "details": {
+                "context": "indirect field access"
+              }
+            },
+            {
+              "kind": "FIELD_READ",
+              "function": "gf_isom_box_size",
+              "location": {
+                "file": "src/isomedia/box_funcs.c",
+                "line": 1997,
+                "code": "a->registry->disabled"
+              },
+              "value_before": "a->registry",
+              "value_after": "disabled",
+              "details": {
+                "context": "dereference of potentially invalid pointer"
+              }
+            }
+          ],
+          "sink_use": {
+            "function": "gf_isom_box_size",
+            "location": {
+              "file": "src/isomedia/box_funcs.c",
+              "line": 1997,
+              "code": "if (a->registry->disabled) { a->size = 0; return GF_OK; }"
+            },
+            "focus_arg_index_1based": 1
+          },
+          "constraints": {
+            "guards_parsed": [
+              "!a (line 1996)"
+            ],
+            "guards_raw": [
+              "if (!a) return GF_BAD_PARAM;"
+            ]
+          },
+          "call_chain": [
+            "gf_isom_box_size"
+          ],
+          "vars_of_interest": [
+            "a",
+            "a->registry",
+            "a->registry->disabled"
+          ],
+          "levers": [
+            "pass NULL or freed GF_Box* pointer",
+            "pass GF_Box with NULL registry field",
+            "pass GF_Box with freed registry pointer"
+          ]
+        }
+      ],
+      "preferred_path_id": "p0",
+      "guards_pending": false
+    }
   }
 ]
