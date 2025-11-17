@@ -1,3 +1,6 @@
+# 重启joern容器
+docker compose -f cpg_tracer/docker-compose.yml restart joern_server_16240
+
 # 批量运行
 运行指南
 
