@@ -20,7 +20,7 @@ docker compose -f cpg_tracer/docker-compose.yml restart joern_server_16240
 python -m cpg_tracer.run_instances \
       --llm-profile claude \
       --config-file cpg_tracer/ids.txt \
-      -- --output-dir cpg_tracer/output --max-iters 100
+      -- --output-dir cpg_tracer/output-OOB-v2 --max-iters 45
 ```
      python -m cpg_tracer.run_instances \
          --all \

@@ -1,4 +1,8 @@
-libredwg.cve-2022-45332
-imagemagick.cve-2019-13303
 njs.cve-2022-38890
-gpac.cve-2023-0760
+mruby.cve-2022-1286
+jq.cve-2023-50246
+liblouis.cve-2023-26768
+imagemagick.cve-2019-13297
+gpac.cve-2024-0322
+faad2.cve-2021-32278
+libredwg.cve-2020-21827

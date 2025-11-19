@@ -430,5 +430,652 @@
       "preferred_path_id": "p0",
       "guards_pending": false
     }
+  },
+  {
+    "instance_id": "liblouis.cve-2023-26768",
+    "dataflow": {
+      "schema": {
+        "name": "dataflow",
+        "version": "1"
+      },
+      "status": {
+        "result": "complete",
+        "reason": "ok"
+      },
+      "sink": {
+        "name": "strcpy",
+        "caller_func": "lou_logFile",
+        "callsite": {
+          "file": "liblouis/logging.c",
+          "line": 130,
+          "code": "strcpy(initialLogFileName, fileName)"
+        },
+        "focus": {
+          "arg_index_1based": 2,
+          "code": "fileName"
+        },
+        "tags": [
+          "BUFFER_OVERFLOW",
+          "UNCHECKED_LENGTH"
+        ]
+      },
+      "paths": [
+        {
+          "id": "p0",
+          "source": {
+            "kind": "PARAM",
+            "symbol": "fileName",
+            "function": "lou_logFile",
+            "location": {
+              "file": "liblouis/logging.c",
+              "line": 124,
+              "code": "const char *fileName"
+            }
+          },
+          "steps": [
+            {
+              "kind": "ASSIGN",
+              "function": "lou_logFile",
+              "location": {
+                "file": "liblouis/logging.c",
+                "line": 129,
+                "code": "fileName == NULL"
+              }
+            },
+            {
+              "kind": "FIELD_READ",
+              "function": "lou_logFile",
+              "location": {
+                "file": "liblouis/logging.c",
+                "line": 129,
+                "code": "fileName[0] == 0"
+              }
+            },
+            {
+              "kind": "CALL_ARG_PASS",
+              "function": "lou_logFile",
+              "location": {
+                "file": "liblouis/logging.c",
+                "line": 130,
+                "code": "strcpy(initialLogFileName, fileName)"
+              }
+            }
+          ],
+          "sink_use": {
+            "function": "lou_logFile",
+            "location": {
+              "file": "liblouis/logging.c",
+              "line": 130,
+              "code": "strcpy(initialLogFileName, fileName)"
+            },
+            "focus_arg_index_1based": 2
+          },
+          "constraints": {
+            "guards_parsed": [],
+            "guards_raw": []
+          },
+          "call_chain": [
+            "lou_logFile"
+          ],
+          "vars_of_interest": [
+            "fileName",
+            "initialLogFileName"
+          ],
+          "levers": [
+            "unbounded fileName parameter",
+            "no length check before strcpy",
+            "fixed 256-byte destination buffer"
+          ]
+        }
+      ],
+      "preferred_path_id": "p0",
+      "guards_pending": true
+    }
+  },
+  {
+    "instance_id": "gpac.cve-2024-0322",
+    "dataflow": {
+      "schema": {
+        "name": "dataflow",
+        "version": "1"
+      },
+      "status": {
+        "result": "complete",
+        "reason": "ok"
+      },
+      "sink": {
+        "name": "memcpy",
+        "caller_func": "ac3dmx_process",
+        "callsite": {
+          "file": "src/filters/reframe_ac3.c",
+          "line": 489,
+          "code": "memcpy(output, sync, ctx->hdr.framesize)"
+        },
+        "focus": {
+          "arg_index_1based": 3,
+          "code": "ctx->hdr.framesize"
+        },
+        "tags": [
+          "SIZE",
+          "OOB_READ"
+        ]
+      },
+      "paths": [
+        {
+          "id": "p0",
+          "source": {
+            "kind": "PARAM",
+            "symbol": "ctx->hdr.framesize",
+            "function": "ac3dmx_process",
+            "location": {
+              "file": "src/filters/reframe_ac3.c",
+              "line": 437,
+              "code": "ctx->ac3_parser_bs(ctx->bs, &ctx->hdr, GF_TRUE)"
+            }
+          },
+          "steps": [
+            {
+              "kind": "CALL_ARG_PASS",
+              "function": "ac3dmx_process",
+              "location": {
+                "file": "src/filters/reframe_ac3.c",
+                "line": 437,
+                "code": "ctx->ac3_parser_bs(ctx->bs, &ctx->hdr, GF_TRUE)"
+              },
+              "details": {
+                "description": "Parser call populates ctx->hdr with untrusted AC3 frame header data"
+              }
+            },
+            {
+              "kind": "FIELD_READ",
+              "function": "ac3dmx_process",
+              "location": {
+                "file": "src/filters/reframe_ac3.c",
+                "line": 484,
+                "code": "dst_pck = gf_filter_pck_new_alloc(ctx->opid, ctx->hdr.framesize, &output)"
+              },
+              "details": {
+                "description": "framesize used to allocate output buffer"
+              }
+            },
+            {
+              "kind": "FIELD_READ",
+              "function": "ac3dmx_process",
+              "location": {
+                "file": "src/filters/reframe_ac3.c",
+                "line": 489,
+                "code": "memcpy(output, sync, ctx->hdr.framesize)"
+              },
+              "details": {
+                "description": "framesize used as memcpy size parameter"
+              }
+            }
+          ],
+          "sink_use": {
+            "function": "ac3dmx_process",
+            "location": {
+              "file": "src/filters/reframe_ac3.c",
+              "line": 489,
+              "code": "memcpy(output, sync, ctx->hdr.framesize)"
+            },
+            "focus_arg_index_1based": 3
+          },
+          "constraints": {
+            "guards_parsed": [
+              "!ctx->in_seek && remain >= ctx->hdr.framesize"
+            ],
+            "guards_raw": [
+              "!ctx->in_seek && remain >= ctx->hdr.framesize"
+            ]
+          },
+          "call_chain": [
+            "ac3dmx_process"
+          ],
+          "vars_of_interest": [
+            "ctx->hdr.framesize",
+            "remain",
+            "output",
+            "sync"
+          ],
+          "levers": [
+            "craft AC3 frame header with large framesize value",
+            "framesize > input buffer capacity",
+            "bypass guard by ensuring remain >= framesize"
+          ]
+        }
+      ],
+      "preferred_path_id": "p0",
+      "guards_pending": false
+    }
+  },
+  {
+    "instance_id": "faad2.cve-2021-32278",
+    "dataflow": {
+      "schema": {
+        "name": "dataflow",
+        "version": "1"
+      },
+      "status": {
+        "result": "complete",
+        "reason": "ok"
+      },
+      "sink": {
+        "name": "<operator>.indirectIndexAccess",
+        "caller_func": "lt_prediction",
+        "callsite": {
+          "file": "libfaad/lt_predict.c",
+          "line": 108,
+          "code": "lt_pred_stat[num_samples + i - ltp->lag]"
+        },
+        "focus": {
+          "arg_index_1based": 2,
+          "code": "num_samples + i - ltp->lag"
+        },
+        "tags": [
+          "INDEX",
+          "OOB_READ",
+          "CWE-125"
+        ]
+      },
+      "paths": [
+        {
+          "id": "p0",
+          "source": {
+            "kind": "PARAM",
+            "symbol": "frame_len",
+            "function": "lt_prediction",
+            "location": {
+              "file": "libfaad/lt_predict.c",
+              "line": 83,
+              "code": "uint16_t frame_len"
+            }
+          },
+          "steps": [
+            {
+              "kind": "ASSIGN",
+              "function": "lt_prediction",
+              "location": {
+                "file": "libfaad/lt_predict.c",
+                "line": 94,
+                "code": "num_samples = frame_len << 1"
+              },
+              "value_before": "frame_len",
+              "value_after": "frame_len << 1"
+            },
+            {
+              "kind": "ARITH",
+              "function": "lt_prediction",
+              "location": {
+                "file": "libfaad/lt_predict.c",
+                "line": 108,
+                "code": "num_samples + i"
+              },
+              "value_before": "num_samples",
+              "value_after": "num_samples + i"
+            },
+            {
+              "kind": "ARITH",
+              "function": "lt_prediction",
+              "location": {
+                "file": "libfaad/lt_predict.c",
+                "line": 108,
+                "code": "num_samples + i - ltp->lag"
+              },
+              "value_before": "num_samples + i",
+              "value_after": "num_samples + i - ltp->lag"
+            }
+          ],
+          "sink_use": {
+            "function": "lt_prediction",
+            "location": {
+              "file": "libfaad/lt_predict.c",
+              "line": 108,
+              "code": "x_est[i] = (real_t)lt_pred_stat[num_samples + i - ltp->lag] * codebook[ltp->coef]"
+            },
+            "focus_arg_index_1based": 2
+          },
+          "constraints": {
+            "guards_parsed": [
+              "i < num_samples"
+            ],
+            "guards_raw": [
+              "i < num_samples"
+            ]
+          },
+          "call_chain": [
+            "reconstruct_single_channel",
+            "lt_prediction"
+          ],
+          "vars_of_interest": [
+            "frame_len",
+            "num_samples",
+            "i",
+            "ltp->lag",
+            "lt_pred_stat"
+          ],
+          "levers": [
+            "attacker-controlled frame_len via hDecoder->frameLength",
+            "attacker-controlled ltp->lag via ics->ltp struct",
+            "negative or large ltp->lag causes index underflow/overflow"
+          ]
+        },
+        {
+          "id": "p1",
+          "source": {
+            "kind": "PARAM",
+            "symbol": "ltp",
+            "function": "lt_prediction",
+            "location": {
+              "file": "libfaad/lt_predict.c",
+              "line": 83,
+              "code": "ltp_info *ltp"
+            }
+          },
+          "steps": [
+            {
+              "kind": "FIELD_READ",
+              "function": "lt_prediction",
+              "location": {
+                "file": "libfaad/lt_predict.c",
+                "line": 108,
+                "code": "ltp->lag"
+              },
+              "value_before": "ltp",
+              "value_after": "ltp->lag"
+            },
+            {
+              "kind": "ARITH",
+              "function": "lt_prediction",
+              "location": {
+                "file": "libfaad/lt_predict.c",
+                "line": 108,
+                "code": "num_samples + i - ltp->lag"
+              },
+              "value_before": "num_samples + i",
+              "value_after": "num_samples + i - ltp->lag"
+            }
+          ],
+          "sink_use": {
+            "function": "lt_prediction",
+            "location": {
+              "file": "libfaad/lt_predict.c",
+              "line": 108,
+              "code": "x_est[i] = (real_t)lt_pred_stat[num_samples + i - ltp->lag] * codebook[ltp->coef]"
+            },
+            "focus_arg_index_1based": 2
+          },
+          "constraints": {
+            "guards_parsed": [
+              "ltp->data_present",
+              "i < num_samples"
+            ],
+            "guards_raw": [
+              "ltp->data_present",
+              "i < num_samples"
+            ]
+          },
+          "call_chain": [
+            "reconstruct_single_channel",
+            "lt_prediction"
+          ],
+          "vars_of_interest": [
+            "ltp",
+            "ltp->lag",
+            "ltp->data_present"
+          ],
+          "levers": [
+            "ltp->lag can be negative or exceed buffer bounds",
+            "ltp->data_present guard does not validate lag magnitude"
+          ]
+        }
+      ],
+      "preferred_path_id": "p0",
+      "guards_pending": false
+    }
+  },
+  {
+    "instance_id": "libredwg.cve-2020-21827",
+    "dataflow": {
+      "schema": {
+        "name": "dataflow",
+        "version": "1"
+      },
+      "status": {
+        "result": "partial",
+        "reason": "no_path"
+      },
+      "sink": {
+        "name": "memcpy",
+        "caller_func": "read_2004_compressed_section",
+        "callsite": {
+          "file": "src/decode.c",
+          "line": 2402,
+          "code": "memcpy (&decomp[i * info->size], &dat->chain[address + es.fields.address + 32], MIN (bytes_left, info->size))"
+        },
+        "focus": {
+          "arg_index_1based": 3,
+          "code": "MIN (bytes_left, info->size)"
+        },
+        "tags": [
+          "SIZE",
+          "HEAP_BUFFER_OVERFLOW"
+        ]
+      },
+      "paths": [],
+      "guards_pending": false,
+      "partial_evidence": {
+        "focus": "MIN (bytes_left, info->size)",
+        "suspected_sources": [
+          {
+            "kind": "FIELD_WRITE",
+            "symbol": "info->num_sections",
+            "function": "read_2004_compressed_section",
+            "location": {
+              "file": "src/decode.c",
+              "line": 2271,
+              "code": "info = &dwg->header.section_info[i]"
+            }
+          },
+          {
+            "kind": "FIELD_WRITE",
+            "symbol": "info->max_decomp_size",
+            "function": "read_2004_compressed_section",
+            "location": {
+              "file": "src/decode.c",
+              "line": 2298,
+              "code": "max_decomp_size = info->num_sections * info->max_decomp_size"
+            }
+          },
+          {
+            "kind": "FIELD_WRITE",
+            "symbol": "info->size",
+            "function": "read_2004_compressed_section",
+            "location": {
+              "file": "src/decode.c",
+              "line": 2404,
+              "code": "MIN (bytes_left, info->size)"
+            }
+          },
+          {
+            "kind": "ASSIGN",
+            "symbol": "bytes_left",
+            "function": "read_2004_compressed_section",
+            "location": {
+              "file": "src/decode.c",
+              "line": 2314,
+              "code": "bytes_left = max_decomp_size"
+            }
+          }
+        ],
+        "last_seen": {
+          "function": "read_2004_compressed_section",
+          "location": {
+            "file": "src/decode.c",
+            "line": 2404,
+            "code": "MIN (bytes_left, info->size)"
+          }
+        },
+        "next_hints": [
+          "Trace info parameter back to caller read_2004_section_preview to confirm DWG file header origin",
+          "Verify integer overflow in max_decomp_size = info->num_sections * info->max_decomp_size (line 2298)",
+          "Confirm info->size is not validated against decomp buffer capacity before memcpy",
+          "Guard at line 2370 checks (i * info->max_decomp_size) <= max_decomp_size but does not validate info->size against remaining bytes_left",
+          "Guard at line 2388 is error-check AFTER memcpy, not protective"
+        ]
+      }
+    }
+  },
+  {
+    "instance_id": "imagemagick.cve-2019-13297",
+    "dataflow": {
+      "schema": {
+        "name": "dataflow",
+        "version": "1"
+      },
+      "status": {
+        "result": "partial",
+        "reason": "max_iterations"
+      },
+      "sink": {
+        "name": "<operator>.indirectIndexAccess",
+        "caller_func": "AdaptiveThresholdImage",
+        "callsite": {
+          "file": "MagickCore/threshold.c",
+          "line": 323,
+          "code": "pixels[i]"
+        },
+        "focus": {
+          "arg_index_1based": 2,
+          "code": "i"
+        },
+        "tags": [
+          "INDEX",
+          "OOB_READ"
+        ]
+      },
+      "paths": [
+        {
+          "id": "p0",
+          "source": {
+            "kind": "PARAM",
+            "symbol": "i",
+            "function": "AdaptiveThresholdImage",
+            "location": {
+              "file": "MagickCore/threshold.c",
+              "line": 301,
+              "code": "for (i=0;i < (ssize_t) GetPixelChannels(image);i++)"
+            }
+          },
+          "steps": [
+            {
+              "kind": "ASSIGN",
+              "function": "AdaptiveThresholdImage",
+              "location": {
+                "file": "MagickCore/threshold.c",
+                "line": 301,
+                "code": "i=0"
+              },
+              "value_before": null,
+              "value_after": "0"
+            },
+            {
+              "kind": "ARITH",
+              "function": "AdaptiveThresholdImage",
+              "location": {
+                "file": "MagickCore/threshold.c",
+                "line": 301,
+                "code": "i < (ssize_t) GetPixelChannels(image)"
+              },
+              "details": {
+                "loop_bound": "GetPixelChannels(image)"
+              }
+            },
+            {
+              "kind": "CALL_ARG_PASS",
+              "function": "AdaptiveThresholdImage",
+              "location": {
+                "file": "MagickCore/threshold.c",
+                "line": 323,
+                "code": "pixels[i]"
+              },
+              "details": {
+                "arg_index": 2,
+                "operation": "indirectIndexAccess"
+              }
+            }
+          ],
+          "sink_use": {
+            "function": "AdaptiveThresholdImage",
+            "location": {
+              "file": "MagickCore/threshold.c",
+              "line": 323,
+              "code": "pixels[i]"
+            },
+            "focus_arg_index_1based": 2
+          },
+          "constraints": {
+            "guards_parsed": [
+              "i < (ssize_t) GetPixelChannels(image)"
+            ],
+            "guards_raw": [
+              "for (i=0;i < (ssize_t) GetPixelChannels(image);i++)"
+            ]
+          },
+          "call_chain": [
+            "AdaptiveThresholdImage"
+          ],
+          "vars_of_interest": [
+            "i",
+            "pixels",
+            "GetPixelChannels(image)"
+          ],
+          "levers": [
+            "loop index i bounded by GetPixelChannels(image)",
+            "pixels pointer advanced by (width-1)*GetPixelChannels(image) and GetPixelChannels(image)*(image->columns+1)"
+          ]
+        }
+      ],
+      "preferred_path_id": "p0",
+      "guards_pending": false,
+      "partial_evidence": {
+        "focus": "i",
+        "suspected_sources": [
+          {
+            "kind": "PARAM",
+            "symbol": "i",
+            "function": "AdaptiveThresholdImage",
+            "location": {
+              "file": "MagickCore/threshold.c",
+              "line": 301,
+              "code": "for (i=0;i < (ssize_t) GetPixelChannels(image);i++)"
+            }
+          },
+          {
+            "kind": "PARAM",
+            "symbol": "p",
+            "function": "AdaptiveThresholdImage",
+            "location": {
+              "file": "MagickCore/threshold.c",
+              "line": 259,
+              "code": "p=GetCacheViewVirtualPixels(image_view,-((ssize_t) width/2L),y-(ssize_t) (height/2L),image->columns+width,height,exception)"
+            }
+          }
+        ],
+        "last_seen": {
+          "function": "AdaptiveThresholdImage",
+          "location": {
+            "file": "MagickCore/threshold.c",
+            "line": 323,
+            "code": "pixels[i]"
+          }
+        },
+        "next_hints": [
+          "Verify buffer allocation size: GetCacheViewVirtualPixels allocates (image->columns+width)*height*GetPixelChannels(image) elements",
+          "Trace pointer arithmetic: pixels advanced by (width-1)*GetPixelChannels(image) then GetPixelChannels(image)*(image->columns+1) per loop iteration",
+          "Check if loop bounds on i (0 to GetPixelChannels(image)-1) exceed allocated buffer when pixels is advanced",
+          "Pivot to caller of AdaptiveThresholdImage to verify image dimensions and width/height parameters"
+        ]
+      }
+    }
   }
 ]
