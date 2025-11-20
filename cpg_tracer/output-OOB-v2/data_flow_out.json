@@ -296,11 +296,6 @@
             "index",
             "map",
             "skip"
-          ],
-          "levers": [
-            "user-controlled index parameter from njs_string_prototype_last_index_of",
-            "malformed UTF-8 sequence causing p++ to advance past end",
-            "insufficient bounds validation in njs_string_offset before map array access"
           ]
         }
       ],
@@ -419,11 +414,6 @@
             "a",
             "a->registry",
             "a->registry->disabled"
-          ],
-          "levers": [
-            "pass NULL or freed GF_Box* pointer",
-            "pass GF_Box with NULL registry field",
-            "pass GF_Box with freed registry pointer"
           ]
         }
       ],
@@ -520,11 +510,6 @@
           "vars_of_interest": [
             "fileName",
             "initialLogFileName"
-          ],
-          "levers": [
-            "unbounded fileName parameter",
-            "no length check before strcpy",
-            "fixed 256-byte destination buffer"
           ]
         }
       ],
@@ -636,11 +621,6 @@
             "remain",
             "output",
             "sync"
-          ],
-          "levers": [
-            "craft AC3 frame header with large framesize value",
-            "framesize > input buffer capacity",
-            "bypass guard by ensuring remain >= framesize"
           ]
         }
       ],
@@ -752,11 +732,6 @@
             "i",
             "ltp->lag",
             "lt_pred_stat"
-          ],
-          "levers": [
-            "attacker-controlled frame_len via hDecoder->frameLength",
-            "attacker-controlled ltp->lag via ics->ltp struct",
-            "negative or large ltp->lag causes index underflow/overflow"
           ]
         },
         {
@@ -822,10 +797,6 @@
             "ltp",
             "ltp->lag",
             "ltp->data_present"
-          ],
-          "levers": [
-            "ltp->lag can be negative or exceed buffer bounds",
-            "ltp->data_present guard does not validate lag magnitude"
           ]
         }
       ],
@@ -1028,10 +999,6 @@
             "i",
             "pixels",
             "GetPixelChannels(image)"
-          ],
-          "levers": [
-            "loop index i bounded by GetPixelChannels(image)",
-            "pixels pointer advanced by (width-1)*GetPixelChannels(image) and GetPixelChannels(image)*(image->columns+1)"
           ]
         }
       ],

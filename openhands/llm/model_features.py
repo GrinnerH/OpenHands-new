@@ -61,6 +61,8 @@ class ModelFeatures:
 # Pattern tables capturing current behavior. Keep patterns lowercase.
 FUNCTION_CALLING_PATTERNS: list[str] = [
     # Anthropic families
+    'claude-opus-4*'
+    'claude-haiku-4-5*'
     'claude-3-7-sonnet*',
     'claude-3.7-sonnet*',
     'claude-sonnet-3-7-latest',
@@ -79,6 +81,7 @@ FUNCTION_CALLING_PATTERNS: list[str] = [
     'o3*',
     'o4-mini*',
     # Google Gemini
+    'gemini-3*'
     'gemini-2.5-pro*',
     # Others
     'kimi-k2-0711-preview',

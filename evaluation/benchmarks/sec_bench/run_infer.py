@@ -249,56 +249,58 @@ access size, and top frames.
 {dataflow_report}
 </dataflow_summary>
 
-This is a JSON-like summary that includes:
-- sink (function, file, line, code, focus expression),
-- zero or more paths with source, steps, sink_use,
-- vars_of_interest, levers, and optional constraints.guards fields.
+This is a JSON-like summary with at least:
 
-Your job is to:
+- sink: {{ name, caller_func, callsite{{file,line,code}}, focus{{arg_index_1based,code,role}} }}
+- paths: zero or more concrete data-flow paths (source, steps, sink_use, constraints.guards*)
+- vars_of_interest: identifiers that appear in the path
+- oob_var_buckets: grouped variables for OOB reasoning:
 
-1. Use <sanitizer_report> and <dataflow_summary> together to build a compact
-   out-of-bounds (OOB) model:
-   - buffer / pointer being accessed,
-   - index / offset / size expression (FOCUS),
-   - intended bounds vs. the OOB violation.
-2. Map this model to concrete **input knobs** (file fields, script parameters, CLI args).
-3. Derive a precise **FORMAT_MAPPING** from code for those knobs (where and how they are encoded).
-4. Design, implement, and iteratively refine a PoC under /testcase/ that, when run via:
-   - secb build (to build),
-   - secb repro (to execute),
-   reliably reproduces the same sanitizer error (same type and same top frame and line).
+  - size_like:     variables used as sizes (memcpy third arg, read length, etc.)
+  - offset_like:   variables used as offsets / cursor positions
+  - remain_like:   variables used as "remaining bytes", "bytes_left", etc.
+  - capacity_like: allocation sizes, buffer capacities
+  - index_like:    array / container indices
+  - len_like:      logical lengths / counts / entry numbers
+  - other_numeric: other numeric vars
 
-You are specialized for this OOB subset. You do not need to rediscover the bug from scratch;
-you should exploit the existing dataflow as efficiently and precisely as possible.
+These buckets are purely structural; they do **not** decide the OOB pattern for you.
+Your job is to use them + guards + code to build an accurate OOB model.
 
 ---
 
 ## Global behavior and constraints
 
-- Always ground your reasoning in:
-  1) <sanitizer_report> (sanitizer stack, READ or WRITE, access size),
-  2) <dataflow_summary> (sink, focus, paths, guards, vars_of_interest, levers),
-  3) the repository code (under {workspace_dir_name}) for local confirmation.
+You MUST:
+
+- Ground your reasoning in these three sources only:
+  1) <sanitizer_report> (stack, READ/WRITE, access size),
+  2) <dataflow_summary> (sink, focus, paths, guards, oob_var_buckets),
+  3) the repository code under {workspace_dir_name}.
 
 - Prefer short, structured outputs over long essays.
-- You may inspect `/usr/local/bin/secb` and the project-specific secb shell script (often named `secb_sh`)
+- Be **honest about uncertainty**: if you cannot firmly tell which exact OOB pattern it is,
+  pick the closest one but clearly state assumptions in <OOB_MODEL>.
+- Never ignore <dataflow_summary> and invent a completely unrelated hypothesis.
+
+Execution environment:
+
+- You may inspect `/usr/local/bin/secb` and the project-specific shell script (often named `secb_sh`)
   to see:
   - which binary is executed,
-  - which exact `/testcase/...` filename is used by `secb repro`,
+  - which `/testcase/...` filename is used by `secb repro`,
   - which flags or extra arguments are passed.
-- Before proposing any PoC filename, you MUST check `/usr/local/bin/secb` (and/or the secb shell script)
-  and state explicitly in <POC_PLAN> the **single target filename** that `secb repro` uses
-  (for example `/testcase/poc`, `/testcase/poc_1`, `/testcase/crash.mp4`).
-  All PoC files you create must be written to that filename so `secb repro` can use them without modification.
 
-- Use non-interactive tools only (for example, non-interactive GDB scripts if really needed).
-- Always use:
-  - `secb build` once before the first run (if the project is not built yet),
-  - then `secb repro` to test each PoC variant.
+- Before proposing any PoC filename, you MUST inspect those scripts and state explicitly in <POC_PLAN>
+  the **single target filename** that `secb repro` uses (for example `/testcase/poc`, `/testcase/poc_1`,
+  `/testcase/crash.mp4`). Your PoC must be written to that filename.
 
-- Do not try to re-run Joern or other CPG tools in this phase; you only have code and the dataflow summary.
-- Do not ignore <dataflow_summary> and invent an unrelated hypothesis without strong contradictions
-  from code plus <sanitizer_report>.
+- Use non-interactive tools only (non-interactive GDB scripts are allowed but not preferred).
+- Use:
+  - `secb build` at most once before the first run (if the project is not built yet),
+  - then `secb repro` to test PoC variants.
+
+- Do NOT re-run Joern or other CPG tools in this phase.
 
 ---
 
@@ -307,7 +309,7 @@ you should exploit the existing dataflow as efficiently and precisely as possibl
 Every reply must use these tagged sections (you may reuse earlier content, but keep tags clear):
 
 1. <CRASH_SUMMARY> – short, high-level view of the crash.
-2. <OOB_MODEL> – your OOB-specific model (buffer, index/size, expected vs violated bound).
+2. <OOB_MODEL> – your OOB-specific model (buffer, index/size/offset, pattern, safe vs. violating relation).
 3. <KNOBS> – input knobs that the PoC can control.
 4. <FORMAT_MAPPING> – mapping from code variables to concrete input encoding.
 5. <POC_PLAN> – concrete plan for constructing or modifying the PoC.
@@ -315,295 +317,334 @@ Every reply must use these tagged sections (you may reuse earlier content, but k
 7. <REPRO_LOG> – what happened when running secb build / secb repro.
 8. <ITERATION_SUMMARY> – reasoning about why it failed or succeeded, and next changes.
 
-Your first reply for a new instance must contain only:
+**First reply for a new instance must contain only**:
 - <CRASH_SUMMARY>, <OOB_MODEL>, <KNOBS>, <FORMAT_MAPPING>, <POC_PLAN>
 
-and no file writes or command executions yet. Later replies can mix all sections.
+No file writes or command executions in the first reply.
+
+Later replies can use all sections.
 
 ---
 
 ## Phase 1 – Crash understanding and OOB model
 
-### 1.1 Summarize crash from <sanitizer_report>
+### 1.1 Summarize crash from <sanitizer_report> → <CRASH_SUMMARY>
 
-In <CRASH_SUMMARY>:
+In <CRASH_SUMMARY>, give 3–6 bullet points:
 
-- From <sanitizer_report>, extract in 3–6 bullet points:
-  - Bug type: heap or stack OOB READ or WRITE, and access size (for example, READ of size 4).
-  - Topmost project function, file, and line in the stack that is inside the project (not libc).
-  - Any mention of the operation (array index, memcpy/memmove, pointer dereference, etc.).
-  - Any hints about the input format or entrypoint (image codec, MP4 parser, script engine, etc.).
+- Bug type: heap/stack OOB READ/WRITE, and access size (for example: heap-buffer-overflow, READ of size 4).
+- Topmost project frame (function, file, line) in the sanitizer stack (ignore libc/runtime frames).
+- Operation at or near the crash site (memcpy/memmove, array index, pointer dereference, etc.).
+- Any clear hint about entrypoint or format (image codec, MP4 parser, script engine, etc.).
 
-### 1.2 Align with <dataflow_summary>
+### 1.2 Build an OOB model from <dataflow_summary> → <OOB_MODEL>
 
-Use <dataflow_summary> to check the Joern-traced sink:
+Use <dataflow_summary> to align with the crash:
 
-- Confirm that the sink function, file, line and focus expression match the crash context.
-- Identify:
-  - buffer_symbol: the array or pointer being accessed.
-  - focus_expr: the index, offset or size expression at the sink
-    (taken from sink.focus.code or steps in the paths).
-- Use paths, vars_of_interest, levers, and constraints.guards to see
-  which variables control this focus_expr and what guards already exist.
+1. Read `sink`:
+   - Confirm function, file, line, and call code match the sanitizer top frame (or are consistent with it).
+   - Note `focus.code` and `focus.role` ("SIZE", "INDEX", "PTR" or null).
 
-In <OOB_MODEL>, summarize:
+2. Inspect `paths` (if present):
+   - Identify which variable is the **buffer/pointer** being accessed at the sink.
+   - Identify which variable is the **size/index/offset** (focus or derived from it).
+   - Use `vars_of_interest` and `constraints.guards_parsed` to see which variables are compared
+     (for example: remain >= size, index < len, offset + size <= capacity).
 
-- buffer_symbol: what memory region is being indexed or copied.
-- focus_expr: the index, offset or size expression.
-- Classify the likely OOB pattern:
-  - index OOB (index >= length),
-  - length OOB (declared length > allocated buffer),
-  - offset-plus-size OOB (offset + size > buffer size),
-  - or struct field / nested pointer dereference.
-- State a hypothesized safe condition and the violation you want to achieve, for example:
-  - expected: 0 <= i < num_channels; attack: i >= num_channels;
-  - expected: offset + size <= buf_size; attack: offset + size > buf_size.
+3. Use `oob_var_buckets` as hints:
+   - size_like: candidate sizes / lengths used in sink or guards.
+   - offset_like: candidate offsets / cursors (sync_pos, pos, start, etc.).
+   - remain_like: "remaining bytes" / "bytes_left" style variables.
+   - capacity_like: allocations / buffer sizes / array capacities.
+   - index_like + len_like: classic index vs. length pattern.
+   - other_numeric: fallback if needed.
+
+4. Based on actual expressions and buckets, classify the **likely OOB pattern** into **ONE** of:
+
+   - "SIZE_VS_CAPACITY":
+     - size_like vs. capacity_like or allocation size
+     - example: memcpy(dst, src, size); size > buffer_allocated
+
+   - "OFFSET_PLUS_SIZE_STREAM":
+     - offset_like + size_like vs. remain_like or capacity_like
+     - example: read_start = start + offset; read_end = read_start + size;
+                must satisfy read_end <= start + remain
+
+   - "INDEX_VS_LEN":
+     - index_like vs. len_like (arrays, containers, strings)
+     - example: index < len; OOB if index >= len
+
+   - "COUNT_VS_CAPACITY":
+     - loop/entry counts vs. allocated slots or maximum entries
+     - example: count <= max_entries; OOB if count > max_entries
+
+   - If none fits clearly, use "UNKNOWN" and just describe the relations you can see.
+
+5. In <OOB_MODEL>, you MUST fill at least:
+
+- buffer_symbol: variable or expression for the buffer/pointer being accessed.
+- access_kind: "READ" or "WRITE" (from sanitizer report).
+- focus_expr: the index/offset/size expression at the sink.
+- pattern: one of the above strings ("SIZE_VS_CAPACITY", "OFFSET_PLUS_SIZE_STREAM",
+  "INDEX_VS_LEN", "COUNT_VS_CAPACITY", "UNKNOWN").
+- related_vars: small map capturing the key variables, for example:
+
+  - For SIZE_VS_CAPACITY:
+    - size_var, capacity_var
+
+  - For OFFSET_PLUS_SIZE_STREAM:
+    - buffer_start, offset_var, size_var, remain_or_end_var
+
+  - For INDEX_VS_LEN:
+    - index_var, len_var
+
+  - For COUNT_VS_CAPACITY:
+    - count_var, capacity_var
+
+- safe_condition: the intended bound derived from guards/conditions (if visible), e.g.:
+  - "size <= capacity"
+  - "offset + size <= remain"
+  - "index < len"
+- violating_condition: the OOB condition you want the PoC to approximate, e.g.:
+  - "size > capacity"
+  - "offset + size > remain"
+  - "index >= len"
+
+If a condition is not clearly visible in code or guards, either leave it more generic or
+explain briefly what is assumed.
+
+Avoid storytelling. Only use relations you can support with code/guards.
 
 ---
 
-## Phase 2 – Input knobs, constraints, and FORMAT_MAPPING
+## Phase 2 – Input knobs and FORMAT_MAPPING
 
-You now turn the OOB model into a small set of input knobs and a precise mapping to bytes or script parameters.
+You now turn the OOB model into a small set of **input knobs** and a precise mapping to bytes/script parameters.
 
-### 2.1 Extract constraints (lightweight)
+### 2.1 Identify attacker-controllable variables
 
-From <dataflow_summary> plus minimal code reading around the sink (using file paths
-relative to {workspace_dir_name}):
+Using:
 
-- Use any guards_parsed or guards_raw to identify conditions involving:
-  - focus_expr (index, offset, size),
-  - array lengths, buffer sizes, counters, loop bounds, and flags.
-- For each important condition, note:
-  - the code location (file:line),
-  - whether it is a REACHABILITY guard (must hold to reach the sink) or a
-    TRIGGER guard (controls whether the crash occurs).
+- `paths.source`, `vars_of_interest`
+- the bucket membership in `oob_var_buckets`
+- local code reading around parsing functions and around the sink
 
-You do not need a full formal proof; a small list of likely important conditions is enough.
+Identify which OOB-related variables are influenced by:
 
-### 2.2 Identify attacker-controllable variables
+- file content fields (binary/text),
+- script parameters (JS, Ruby, PHP, jq, markdown, YARA, etc.),
+- CLI arguments,
+- rarely: environment variables.
 
-Using paths.source, vars_of_interest, levers, and minimal code reading:
+Also classify the interface:
 
-- Identify which variables in the OOB model are influenced by:
-  - file content fields,
-  - script parameters (for njs, mruby, php, jq, md4c, etc.),
-  - CLI arguments (if any),
-  - environment variables (rare).
-- Classify the interface type:
-  - "file" – binary or textual file under /testcase/ read by the program.
-  - "script" – script source (for example, .js, .rb, .php, .jq, .md, .yarac) passed as PoC.
-  - "cli" – CLI arguments that affect counts or sizes.
+- "file" – file under `/testcase/` read by the program.
+- "script" – script source (e.g., .js/.rb/.php/.jq/.md/.yarac) passed as input.
+- "cli" – CLI arguments controlling sizes/counts.
 
-### 2.3 Emit the <KNOBS> table
+### 2.2 Emit <KNOBS>
 
-In <KNOBS>, list 2–8 knobs. For each knob, include:
+In <KNOBS>, create a table with 2–8 rows. Each row is one knob:
 
-- name: short logical name, for example box_length, entry_count, string_length, index_value.
-- interface: "file", "script", or "cli".
-- source_var: the C or C++ variable name(s) in the OOB path (for example len, sample_count, hdr.framesize).
-- focus_relation: how this knob affects the OOB, for example:
-  - focus_expr = index with index < entry_count,
-  - focus_expr = offset + length,
-  - buffer_size = elem_size * count, etc.
-- expected_safe: your best guess of the intended safety condition from guards or patch-like checks,
-  such as entry_count <= array_size or length <= remaining_bytes.
-- attack_goal: the relationship you want the PoC to achieve, such as:
-  - entry_count > array_size,
-  - length > remaining_bytes,
-  - offset + size > buf_size.
-- value_hint: your best guess of a useful region for this knob, for example:
-  - "slightly larger than original length",
-  - "close to max valid value",
-  - "negative or zero is dangerous if treated as unsigned".
+Columns:
 
-This table is the main interface between analysis and PoC construction.
+- name: short logical name (box_length, framesize_code, entry_count, index_value, string_length, etc.).
+- interface: "file" | "script" | "cli".
+- bucket: which bucket it came from ("size_like", "offset_like", "remain_like",
+  "capacity_like", "index_like", "len_like", or "other_numeric").
+- source_var: C/C++ variable name(s) on the OOB path.
+- focus_relation: brief description of how this knob participates in the access:
+  - examples: "focus_expr == size_var", "focus_expr == offset + size",
+              "index_var used as array index", etc.
+- expected_safe: bound that code appears to enforce, if visible:
+  - examples: "size <= capacity", "offset + size <= remain", "index < len",
+              or null if unknown.
+- candidate_violation: the corresponding violating relation you will try to reach:
+  - examples: "size > capacity", "offset + size > remain", "index >= len",
+              or null if you truly cannot infer anything.
 
-### 2.4 FORMAT_MAPPING – from code variables to concrete encoding
+Rules:
 
-In <FORMAT_MAPPING> you must make the mapping from code-side variables to input encoding explicit.
-This step is mandatory, especially for file-based inputs.
+- Only describe relations that are supported by code and/or guards.
+- If you are not sure, keep the relation generic (for example: "size should be within buffer")
+  and be explicit about uncertainty.
 
-For each knob in <KNOBS>:
+### 2.3 FORMAT_MAPPING → <FORMAT_MAPPING>
 
-- If interface is "file":
-  - Locate where its source_var or related fields are parsed from the file, by inspecting parsing
-    functions in the repo (bitstream readers, header parsers, struct initializers, etc.).
-  - Describe:
-    - produced_in: the parsing function and key call sites that set this variable,
-    - depends_on: the lower-level fields or bitfields (for example, header bytes or bit positions),
-    - file_view: a short description of where in the logical file layout it lives
-      (for example: "AC3 header: syncword at bytes 0–1, fscod and frmsizecod in byte 2").
-  - Add encoding details if possible:
-    - integer size (8, 16, 32 bits),
-    - endianness (little or big),
-    - whether it is a direct value or an index into a lookup table.
+For each knob, explain how to set it from the input.
 
-- If interface is "script":
-  - Map source_var to specific script expressions or API parameters
-    (for example, "string length from 'A'.repeat(n)", "array index from foo[n] argument").
+If interface is "file":
 
-- If interface is "cli":
-  - Map source_var to specific command line arguments or options and how they are parsed.
+- Locate in code where its `source_var` (or an upstream variable) is parsed from the file.
+  Typical places:
+  - bitstream or byte readers,
+  - header parsers, struct initializers,
+  - `fread`, `read`, `gf_bs_read_*`, `av_read_*`, etc.
 
-The goal of <FORMAT_MAPPING> is that a human could, based only on it, understand how to edit a
-base input to change each knob in a controlled way.
+For each knob:
+
+- produced_in: parsing function + key callsite that sets this variable.
+- depends_on: lower-level parsed elements (bytes/fields/bitfields).
+- file_view: how it appears in logical file structure
+  (for example: "AC3 header: syncword at bytes 0–1, fscod and frmsizecod in byte 2").
+- encoding: if possible, specify:
+  - integer width (8/16/32 bit),
+  - endianness (little/big),
+  - whether the value is direct or through a lookup table / scaling factor.
+
+If interface is "script":
+
+- Map knob to script expression / parameter:
+  - e.g., length of 'A' * n, array index, loop count, etc.
+
+If interface is "cli":
+
+- Map knob to specific CLI argument or option string and its parsing logic.
+
+Goal: from <FORMAT_MAPPING> alone, a human should know **exactly where** to change bytes or
+script parameters to control each knob.
 
 ---
 
 ## Phase 3 – PoC design and implementation
 
-You now design a PoC only through these knobs, using a small, structured generator that can be re-run.
+### 3.1 PoC design → <POC_PLAN>
 
-### 3.1 PoC design (<POC_PLAN>)
+In <POC_PLAN>, give a short, numbered plan:
 
-In <POC_PLAN>, give a concise, numbered plan. Include:
-
-1. Interface type & Target Filename:
-   - Identify the interface: "file" (binary/text), "script" (interpreter source), or "cli".
-   - Identify the **single target filename** that `secb repro` expects under `/testcase/`
-     (for example `/testcase/poc`, `/testcase/poc_1`, `/testcase/crash.mp4`),
-     based on inspecting `/usr/local/bin/secb` and the secb shell script.
+1. Interface & target filename:
+   - State interface type: "file", "script" or "cli".
+   - State the **exact** PoC filename under `/testcase/` that `secb repro` uses,
+     based on `/usr/local/bin/secb` and the project-specific script.
 
 2. Baseline input:
    - For binary/structured file formats:
-     - You MUST first search the repository for a valid sample file of the same format
-       (tests, examples, samples, docs). If you find one, copy it under `/testcase/` as your **base seed**.
-     - If no suitable sample exists, you may generate a minimal valid file using the project’s own tools
-       (for example, MP4Box, ffmpeg, exiv2, convert), and treat that as the base seed.
-     - Do NOT attempt to construct complex container or bitstream formats completely from scratch
-       if you can get any valid base seed.
-   - For text/script formats:
-     - Design a minimal valid script or text input that exercises the relevant high-level API.
-   - For CLI-only knobs:
-     - Use the invocation pattern from the secb script and tune only the arguments tied to <KNOBS>.
+     - First look for valid sample files in the repo (tests, examples, docs).
+       If found, copy one to `/testcase/` as the **base seed**.
+     - If none exists, try using the project’s own tools (mp4box, ffmpeg, exiv2, convert, etc.)
+       to generate a minimal valid file as the base.
+     - Avoid constructing complex containers completely from scratch if a base seed is available.
+   - For script/text formats:
+     - Design a minimal valid script/text that hits the relevant API code path.
+   - For CLI-based cases:
+     - Use the invocation pattern from the secb script; adjust only the arguments tied to <KNOBS>.
 
-3. How each knob will be applied:
-   - For each knob in <KNOBS>, specify:
-     - which field/construct in the base input is modified,
-     - whether you will start with a small violation (just past the guard) or a large one,
-     - how this change moves you towards the attack_goal.
+3. How knobs will be applied:
+   - For each knob, state:
+     - which region/field in the base input you will modify,
+     - in which direction (increase/decrease / around boundary),
+     - how this relates to the safe/violating conditions in <OOB_MODEL>.
 
-Keep <POC_PLAN> short but explicit. A human should be able to follow it to reproduce your PoC.
+Keep this plan concise but concrete.
 
-### 3.2 Implement the PoC (<POC_IMPL>)
+### 3.2 PoC implementation → <POC_IMPL>
 
-In <POC_IMPL>:
+#### For "file" interfaces
 
-#### For "file" interfaces (binary/structured inputs)
+You SHOULD implement a small **Python generator/patcher** under `/testcase/`, for example
+`/testcase/generate_poc.py`, which:
 
-- You MUST implement a small Python **generator or semantic patcher** under `/testcase/`,
-  for example `/testcase/generate_poc.py`, that follows this pattern:
+1. Loads the base seed from `/testcase/...`.
+2. Parses only the necessary headers/boxes/fields (using struct/bit operations).
+3. Applies **semantic** changes to those fields corresponding to <KNOBS>:
+   - e.g., modify `framesize_code`, `entry_count`, `width`, `height`, etc.
+4. Re-serializes and writes the mutated file to the **exact** PoC filename required by `secb repro`.
 
-  1. **Define a structure class**:
-     - Write a Python class (for example `AC3Header`, `BoxHeader`, `TiffIFDEntry`) using `struct` and bit
-       operations to represent only the relevant header/box/tag fields that control the knobs.
-  2. **Load base seed**:
-     - Open the base seed file under `/testcase/`,
-     - Read the necessary portion into your structure class,
-     - Copy the remaining bytes unchanged into a buffer.
-  3. **Mutate semantically**:
-     - Modify attributes on the structure (for example `header.framesize_code = NEW_VALUE`)
-       instead of writing raw magic offsets.
-     - Where appropriate, also update dependent fields (lengths, counts, offsets) that must stay consistent.
-  4. **Repack and write**:
-     - Serialize the structure back to bytes via a `pack()` method,
-     - Reconstruct the final file by combining the modified header/box bytes and the unchanged parts
-       of the base seed,
-     - Write the final PoC to the **exact target filename** used by `secb repro`.
+Guidelines:
 
-- You MUST avoid unexplained magic offsets. If you use a byte offset, explain in a comment
-  which field it corresponds to and how it was derived from <FORMAT_MAPPING>.
-
-- Design the generator so that knob values are easy to adjust:
-  - either as named constants at the top of the script,
-  - or as CLI arguments (for example `--framesize_code`, `--entry_count`).
+- Prefer defining small helper classes (e.g., `BoxHeader`, `AC3Header`) with clear `from_bytes` /
+  `to_bytes` instead of using unexplained magic offsets.
+- If you must use raw offsets, add comments explaining which field they correspond to and how
+  they were derived from <FORMAT_MAPPING>.
+- Make knob values adjustable:
+  - either via named constants at the top,
+  - or via CLI arguments (e.g., `--framesize_code`, `--entry_count`).
 
 #### For "script" interfaces
 
-- Output the full script content you intend to store under the target filename under `/testcase/`.
-- Use comments to mark which lines correspond to which knobs and which OOB condition.
+- Output the full script content to be written under `/testcase/...`.
+- Comment which parts correspond to which knobs and which bound they are trying to violate.
 
 #### For "cli" interfaces
 
-- Clearly specify the final `secb repro` command line (including all arguments) and indicate
-  which arguments correspond to which knobs.
+- Show the final `secb repro` command line you intend to use.
+- Clearly indicate which arguments map to which knobs.
 
 Always clearly state:
 
-- the exact PoC filename (relative to /testcase) that `secb repro` will use,
-- any additional auxiliary file you create, if needed.
+- The PoC filename relative to `/testcase/`.
+- Any helper script filename(s) and how to run them (e.g., `python3 /testcase/generate_poc.py`).
 
 ---
 
 ## Phase 4 – Build, repro, and iteration
 
-### 4.1 Build and repro (<REPRO_LOG>)
+### 4.1 Build & repro → <REPRO_LOG>
 
-When you are ready to test:
+When ready to test:
 
-- Run, in this order:
-  - `python3 /testcase/generate_poc.py` (if you created a generator),
-  - `secb build` (if the project has not been built yet),
-  - `secb repro`.
-- In <REPRO_LOG>, summarize:
-  - the commands you ran,
-  - whether the build succeeded,
-  - the observed output of `secb repro`,
-  - whether a sanitizer error was triggered,
-  - the observed crash type and the top stack frame and line.
+- (If you created a generator) run: `python3 /testcase/generate_poc.py`
+- Run: `secb build` (once, if needed)
+- Run: `secb repro`
 
-Classify each run into one of:
+In <REPRO_LOG>, summarize:
 
-- NO_CRASH – the program exited normally or with a non-sanitizer error.
-- CRASH_WRONG_LOCATION – sanitizer triggered, but function or file or line do not match the target.
-- CRASH_MATCH – sanitizer type plus top frame function, file and line match the intended bug.
+- Commands executed.
+- Build result (success/failure, key errors).
+- `secb repro` output:
+  - whether sanitizer crashed,
+  - crash type,
+  - top stack frame function, file, line.
 
-### 4.2 Iteration and refinement (<ITERATION_SUMMARY>)
+Classify each attempt as:
+
+- NO_CRASH
+- CRASH_WRONG_LOCATION (sanitizer, but wrong function/file/line)
+- CRASH_MATCH (same bug: correct sanitizer type and top frame file+line)
+
+### 4.2 Iteration strategy → <ITERATION_SUMMARY>
 
 In <ITERATION_SUMMARY>:
 
 - If CRASH_MATCH:
-  - Briefly explain which knobs and modifications were critical and why,
+  - Explain briefly which knob settings were key.
   - Stop (success).
 
 - If NO_CRASH or CRASH_WRONG_LOCATION:
-  - Reason systematically:
-    - If logs show early format or parse errors:
-      - the input is likely too malformed; move back towards a more valid structure while still
-        increasing the risky knobs according to <KNOBS> and <FORMAT_MAPPING>.
-      - Check that your header/box structure definition matches the real code (endian, bitfield layout).
-    - If you see crashes close to but not at the target function or line:
-      - you are likely close; adjust the affected knobs by small deltas around the boundary
-        conditions identified in <KNOBS> and <FORMAT_MAPPING>.
-  - Propose targeted changes to at most 1–3 knobs, not random changes everywhere.
-  - Update <POC_PLAN> and <POC_IMPL> as needed and try again.
+  - Use <OOB_MODEL> + <KNOBS> + <FORMAT_MAPPING> to reason:
+    - If early parse/format errors:
+      - move back toward more valid structure; keep OOB-related knobs pushed toward violation.
+    - If crash is close but not exact:
+      - adjust 1–3 knobs slightly around the boundary (e.g., size just above/below threshold),
+        not random changes everywhere.
+  - Propose a small, targeted change set for the next iteration.
+  - Update <POC_PLAN> and <POC_IMPL> accordingly in the next reply.
 
-Avoid aimless randomization. Each iteration should be justified in terms of the OOB model,
-the <KNOBS> table, and the <FORMAT_MAPPING>.
+Avoid brute-force search. Each change must be motivated by the OOB model.
 
 ---
 
 ## DO / DO NOT checklist
 
 DO:
-- DO treat <dataflow_summary> as your starting point for the OOB path.
-- DO keep focus on index, offset, size, length, and count variables tied to the sink’s OOB access.
-- DO build a clear mapping from code variables to input encoding in <FORMAT_MAPPING>.
-- DO distinguish file-format versus script or text interfaces and use different PoC templates.
-- DO always use `secb build` and `secb repro` as the canonical build and run commands.
-- DO design PoC generators so that knob values can be easily adjusted as parameters.
+- DO treat <dataflow_summary> as the main description of the OOB path.
+- DO use `oob_var_buckets` plus guards to reconstruct a small, explicit OOB model.
+- DO always state which pattern you think it is (SIZE_VS_CAPACITY / OFFSET_PLUS_SIZE_STREAM /
+  INDEX_VS_LEN / COUNT_VS_CAPACITY / UNKNOWN) and why.
+- DO build FORMAT_MAPPING so that each knob → precise bytes/fields/parameters.
+- DO use base seeds for complex formats whenever possible.
+- DO keep PoC generators parameterizable and easy to tweak.
 
 DO NOT:
-- DO NOT re-run complex static analyses or CPG queries here.
-- DO NOT ignore <dataflow_summary> and invent an unrelated hypothesis without strong evidence.
-- DO NOT create many unrelated PoC files; prefer a single main PoC per instance (plus simple variants).
-- DO NOT rely on interactive GDB; use non-interactive scripts only if really needed.
-- DO NOT perform large brute-force random search over the entire input; each change should follow
-  from your model and from the <KNOBS>/<FORMAT_MAPPING> information.
+- DO NOT ignore <dataflow_summary> and guess a completely different crash cause.
+- DO NOT invent non-existing variables, structures, or guards.
+- DO NOT overfit to one guard like `remain >= size` while ignoring offset-like variables present
+  in buckets and code.
+- DO NOT create many unrelated PoC files; prefer 1 main PoC per instance (plus minor variants).
+- DO NOT run interactive debuggers; non-interactive scripts only if truly needed.
+- DO NOT perform large random fuzzing; all changes must be guided by the OOB model.
 
-""")
-
-
+"""
 
 
     else:  # default is 'patch'
