@@ -1,3 +1,9 @@
+# 在已有 Joern 轨迹 JSON 上直接重跑数据流总结
+python -m cpg_tracer.run_summary_only \
+    --summary-json cpg_tracer/output-OOB-v2/gpac.cve-2024-0322/gpac.cve-2024-0322.json \
+    --output-dir cpg_tracer/output-OOB-v3 \
+    --instance-id gpac.cve-2024-0322
+
 # 重启joern容器
 docker compose -f cpg_tracer/docker-compose.yml restart joern_server_16240
 

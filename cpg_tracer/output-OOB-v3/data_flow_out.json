@@ -1,0 +1,133 @@
+[
+  {
+    "instance_id": "gpac.cve-2024-0322",
+    "dataflow": {
+      "schema": {
+        "name": "dataflow",
+        "version": "1"
+      },
+      "status": {
+        "result": "complete",
+        "reason": "ok"
+      },
+      "sink": {
+        "name": "memcpy",
+        "caller_func": "ac3dmx_process",
+        "callsite": {
+          "file": "src/filters/reframe_ac3.c",
+          "line": 489,
+          "code": "memcpy(output, sync, ctx->hdr.framesize)"
+        },
+        "focus": {
+          "arg_index_1based": 3,
+          "code": "ctx->hdr.framesize",
+          "role": "SIZE"
+        },
+        "tags": []
+      },
+      "paths": [
+        {
+          "id": "p0",
+          "source": {
+            "kind": "parser_call",
+            "symbol": "ctx->hdr.framesize",
+            "function": "ac3dmx_process",
+            "location": {
+              "file": "src/filters/reframe_ac3.c",
+              "line": 437,
+              "code": "ctx->ac3_parser_bs(ctx->bs, &ctx->hdr, GF_TRUE)"
+            }
+          },
+          "steps": [
+            {
+              "type": "FIELD_WRITE",
+              "location": {
+                "file": "src/filters/reframe_ac3.c",
+                "line": 437,
+                "code": "ctx->ac3_parser_bs(ctx->bs, &ctx->hdr, GF_TRUE)"
+              }
+            },
+            {
+              "type": "FIELD_READ",
+              "location": {
+                "file": "src/filters/reframe_ac3.c",
+                "line": 484,
+                "code": "ctx->hdr.framesize"
+              }
+            },
+            {
+              "type": "CALL_ARG_PASS",
+              "location": {
+                "file": "src/filters/reframe_ac3.c",
+                "line": 484,
+                "code": "gf_filter_pck_new_alloc(ctx->opid, ctx->hdr.framesize, &output)"
+              }
+            },
+            {
+              "type": "FIELD_READ",
+              "location": {
+                "file": "src/filters/reframe_ac3.c",
+                "line": 489,
+                "code": "ctx->hdr.framesize"
+              }
+            },
+            {
+              "type": "CALL_ARG_PASS",
+              "location": {
+                "file": "src/filters/reframe_ac3.c",
+                "line": 489,
+                "code": "memcpy(output, sync, ctx->hdr.framesize)"
+              }
+            }
+          ],
+          "sink_use": {
+            "file": "src/filters/reframe_ac3.c",
+            "line": 489,
+            "code": "memcpy(output, sync, ctx->hdr.framesize)"
+          },
+          "constraints": {
+            "guards_parsed": [
+              "remain >= ctx->hdr.framesize"
+            ],
+            "guards_raw": [
+              "!ctx->in_seek && remain >= ctx->hdr.framesize"
+            ]
+          },
+          "call_chain": [],
+          "vars_of_interest": [
+            "ctx->hdr.framesize",
+            "remain",
+            "output",
+            "sync",
+            "ctx->ac3_buffer_size"
+          ]
+        }
+      ],
+      "preferred_path_id": "p0",
+      "guards_pending": false,
+      "oob_var_buckets": {
+        "size_like": [
+          "ctx->hdr.framesize"
+        ],
+        "offset_like": [
+          "sync_pos"
+        ],
+        "remain_like": [
+          "remain"
+        ],
+        "capacity_like": [
+          "ctx->ac3_buffer_size"
+        ],
+        "index_like": [],
+        "len_like": [],
+        "other_numeric": [
+          "bytes_to_drop",
+          "prev_pck_size",
+          "ctx->byte_offset",
+          "ctx->resume_from"
+        ]
+      },
+      "partial_evidence": null
+    }
+  }
+]
